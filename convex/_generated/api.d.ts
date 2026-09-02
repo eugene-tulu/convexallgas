@@ -19,6 +19,7 @@ import type * as mail from "../mail.js";
 import type * as obligations from "../obligations.js";
 import type * as projects from "../projects.js";
 import type * as regulations from "../regulations.js";
+import type * as reminders from "../reminders.js";
 import type * as search from "../search.js";
 import type * as seed from "../seed.js";
 
@@ -40,6 +41,7 @@ declare const fullApi: ApiFromModules<{
   obligations: typeof obligations;
   projects: typeof projects;
   regulations: typeof regulations;
+  reminders: typeof reminders;
   search: typeof search;
   seed: typeof seed;
 }>;

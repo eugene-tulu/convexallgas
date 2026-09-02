@@ -62,15 +62,16 @@ export const markObligationCompleted = mutation({
     const newNextCheckAt = now + recurrenceMs;
 
     await ctx.db.patch(args.id, {
-      status: "completed",
+      lastCompletedAt: now,
       nextCheckAt: newNextCheckAt,
+      status: "pending",
     });
 
     await ctx.runMutation(internal.eventLog.logEvent, {
       table: "obligations",
       rowId: args.id,
       action: "completed",
-      summary: `Obligation "${obligation.commitmentText}" marked completed`,
+      summary: `Obligation "${obligation.commitmentText}" completed, next due ${new Date(newNextCheckAt).toISOString()}`,
     });
 
     return { success: true, newNextCheckAt };

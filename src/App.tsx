@@ -184,29 +184,28 @@ function CrawlPanel({ project }: any) {
   const [query, setQuery] = useState("California wind farm environmental compliance");
   const [results, setResults] = useState<any[]>([]);
   const [scraping, setScraping] = useState(false);
-  const [scrapedDocs, setScrapedDocs] = useState<any[]>([]);
-  const search = useAction(api.firecrawl.search);
-  const scrape = useAction(api.firecrawl.scrape);
+  const search = useAction(api.firecrawl.searchAndPersist);
+  const scrape = useAction(api.firecrawl.scrapeAndPersist);
   const summarize = useAction(api.llm.runLlmTask);
 
   async function handleSearch() {
-    const res = await search({ query, limit: 10 });
-    setResults(res as any[]);
+    const res = (await search({
+      query,
+      limit: 10,
+      projectId: project?._id,
+    })) as any;
+    setResults(res.results || []);
   }
 
-  async function handleScrapeAll() {
+  async function handleScrape(url: string) {
     setScraping(true);
-    const docs = [];
-    for (const r of results) {
-      try {
-        const scraped = (await scrape({ url: r.url })) as any;
-        docs.push({ ...r, ...scraped });
-      } catch (e) {
-        console.error(`Failed to scrape ${r.url}`, e);
-      }
+    try {
+      await scrape({ url, projectId: project?._id });
+    } catch (e) {
+      console.error(`Failed to scrape ${url}`, e);
+    } finally {
+      setScraping(false);
     }
-    setScraping(false);
-    setScrapedDocs(docs);
   }
 
   return (
@@ -235,48 +234,34 @@ function CrawlPanel({ project }: any) {
 
       {results.length > 0 && (
         <div className="bg-white rounded-lg shadow">
-          <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+          <div className="px-6 py-4 border-b border-gray-200">
             <h3 className="font-semibold">Search Results ({results.length})</h3>
-            <button
-              onClick={handleScrapeAll}
-              disabled={scraping}
-              className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
-            >
-              {scraping ? "Scraping..." : "Scrape All"}
-            </button>
+            <p className="text-sm text-gray-500">
+              Click "Scrape" to fetch full content and save to regulations database
+            </p>
           </div>
           <div className="divide-y divide-gray-200">
             {results.map((r, i) => (
-              <div key={i} className="px-6 py-3">
-                <a
-                  href={r.url}
-                  target="_blank"
-                  rel="noopener"
-                  className="text-blue-600 font-medium hover:underline"
+              <div key={i} className="px-6 py-3 flex items-center justify-between">
+                <div className="flex-1">
+                  <a
+                    href={r.url}
+                    target="_blank"
+                    rel="noopener"
+                    className="text-blue-600 font-medium hover:underline"
+                  >
+                    {r.title}
+                  </a>
+                  <p className="text-sm text-gray-500">{r.description}</p>
+                </div>
+                <button
+                  onClick={() => handleScrape(r.url)}
+                  disabled={scraping}
+                  className="ml-2 px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-700 disabled:opacity-50"
                 >
-                  {r.title}
-                </a>
-                <p className="text-sm text-gray-500">{r.description}</p>
+                  {scraping ? "..." : "Scrape"}
+                </button>
               </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {scrapedDocs.length > 0 && (
-        <div className="bg-white rounded-lg shadow">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h3 className="font-semibold">Scraped Documents ({scrapedDocs.length})</h3>
-          </div>
-          <div className="divide-y divide-gray-200 max-h-96 overflow-y-auto">
-            {scrapedDocs.map((d, i) => (
-              <details key={i} className="px-6 py-3">
-                <summary className="font-medium cursor-pointer">{d.title || d.url}</summary>
-                <pre className="mt-2 text-xs bg-gray-50 p-3 rounded overflow-x-auto whitespace-pre-wrap">
-                  {d.markdown?.slice(0, 1000)}
-                  {d.markdown && d.markdown.length > 1000 ? "..." : ""}
-                </pre>
-              </details>
             ))}
           </div>
         </div>
@@ -289,12 +274,16 @@ function SearchPanel() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<any[]>([]);
   const [searching, setSearching] = useState(false);
-  const search = useAction(api.search.searchDocuments);
+  const [searchType, setSearchType] = useState<"documents" | "regulations">("documents");
+  const searchDocs = useAction(api.search.searchDocuments);
+  const searchRegs = useAction(api.search.searchRegulations);
 
   async function handleSearch() {
     setSearching(true);
     try {
-      const res = (await search({ query })) as any[];
+      const res = searchType === "documents"
+        ? (await searchDocs({ query })) as any[]
+        : (await searchRegs({ query })) as any[];
       setResults(res);
     } catch (e) {
       console.error(e);
@@ -308,15 +297,37 @@ function SearchPanel() {
       <div className="bg-white rounded-lg shadow p-6">
         <h2 className="text-lg font-semibold mb-4">Document Search</h2>
         <p className="text-sm text-gray-500 mb-4">
-          Semantic search across all crawled documents and regulations
+          Semantic search using NVIDIA NIM LLM
         </p>
+        <div className="flex gap-2 mb-3">
+          <button
+            onClick={() => setSearchType("documents")}
+            className={`px-3 py-1 text-sm rounded ${
+              searchType === "documents"
+                ? "bg-blue-600 text-white"
+                : "bg-gray-200 text-gray-700"
+            }`}
+          >
+            Documents
+          </button>
+          <button
+            onClick={() => setSearchType("regulations")}
+            className={`px-3 py-1 text-sm rounded ${
+              searchType === "regulations"
+                ? "bg-blue-600 text-white"
+                : "bg-gray-200 text-gray-700"
+            }`}
+          >
+            Regulations
+          </button>
+        </div>
         <div className="flex gap-2">
           <input
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             className="flex-1 border border-gray-300 rounded px-3 py-2"
-            placeholder="What do you want to find?"
+            placeholder={`What do you want to find in ${searchType}?`}
           />
           <button
             onClick={handleSearch}
@@ -336,9 +347,27 @@ function SearchPanel() {
           <div className="divide-y divide-gray-200">
             {results.map((r, i) => (
               <div key={i} className="px-6 py-3">
-                <p className="text-sm text-gray-500">{r.source}</p>
-                <p className="text-sm mt-1">{r.content?.slice(0, 300)}...</p>
-                <p className="text-xs text-gray-400 mt-1">Score: {r.score.toFixed(3)}</p>
+                {searchType === "documents" ? (
+                  <>
+                    <p className="text-sm text-gray-500">{r.source}</p>
+                    <p className="text-sm mt-1">{r.content?.slice(0, 300)}...</p>
+                    <p className="text-xs text-gray-400 mt-1">Score: {r.score?.toFixed(3)}</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="font-medium text-gray-900">{r.agency}</p>
+                    <p className="text-sm text-gray-500">{r.summary}</p>
+                    <a
+                      href={r.sourceUrl}
+                      target="_blank"
+                      rel="noopener"
+                      className="text-xs text-blue-600 hover:underline"
+                    >
+                      {r.sourceUrl}
+                    </a>
+                    <p className="text-xs text-gray-400 mt-1">Score: {r.score?.toFixed(3)}</p>
+                  </>
+                )}
               </div>
             ))}
           </div>

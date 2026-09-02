@@ -38,6 +38,7 @@ export default defineSchema({
       v.literal("overdue"),
     ),
     verificationUrl: v.optional(v.string()),
+    lastCompletedAt: v.optional(v.number()),
   })
     .index("by_project", ["projectId"])
     .index("by_nextCheckAt", ["nextCheckAt"]),

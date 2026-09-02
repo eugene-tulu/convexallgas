@@ -1,6 +1,7 @@
 "use node";
 import { action } from "./_generated/server";
 import { env } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { Firecrawl } from "firecrawl";
 
@@ -15,13 +16,14 @@ export const scrape = action({
   handler: async (ctx, args) => {
     const client = getClient();
     const result = await client.scrape(args.url, {
-      formats: ["markdown"],
+      formats: ["markdown", "summary"],
     });
     return {
       url: args.url,
       markdown: result.markdown ?? "",
       title: result.metadata?.title ?? "",
       html: result.html ?? "",
+      summary: result.summary ?? "",
     };
   },
 });
@@ -57,13 +59,14 @@ export const crawl = action({
     const result = await client.crawl(args.url, {
       limit: args.limit ?? 50,
       scrapeOptions: {
-        formats: ["markdown"],
+        formats: ["markdown", "summary"],
       },
     });
     return result.data.map((page) => ({
       url: page.metadata?.sourceURL ?? "",
       markdown: page.markdown ?? "",
       title: page.metadata?.title ?? "",
+      summary: page.summary ?? "",
     }));
   },
 });
@@ -104,3 +107,84 @@ export const research = action({
 });
 
 export const crawlSource = scrape;
+
+export const searchAndPersist = action({
+  args: {
+    query: v.string(),
+    projectId: v.optional(v.id("projects")),
+    limit: v.optional(v.number()),
+  },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ inserted: number; ids: string[]; results: Array<{ title: string; url: string; description: string }> }> => {
+    const client = getClient();
+    const result = await client.search(args.query, {
+      limit: args.limit ?? 10,
+    });
+    const webResults = result.web ?? [];
+    const filtered = webResults.filter(
+      (r): r is { title?: string; url: string; description?: string; category?: string } => "url" in r
+    );
+
+    const now = Date.now();
+    const ids: string[] = [];
+    for (const r of filtered) {
+      const id: string = await ctx.runMutation(internal.regulations.insertRegulation, {
+        sourceUrl: r.url,
+        agency: r.category ?? "Unknown",
+        extractedText: r.description ?? "",
+        summary: r.title ?? "",
+        affectedProjectIds: args.projectId ? [args.projectId] : [],
+        crawledAt: now,
+        isNew: true,
+      });
+      ids.push(id);
+    }
+
+    return {
+      inserted: ids.length,
+      ids,
+      results: filtered.map((r) => ({
+        title: r.title ?? "",
+        url: r.url,
+        description: r.description ?? "",
+      })),
+    };
+  },
+});
+
+export const scrapeAndPersist = action({
+  args: {
+    url: v.string(),
+    projectId: v.optional(v.id("projects")),
+  },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ id: string; url: string; title: string; summary: string; markdown: string }> => {
+    const client = getClient();
+    const result = await client.scrape(args.url, {
+      formats: ["markdown", "summary"],
+    });
+
+    const now = Date.now();
+    const id: string = await ctx.runMutation(internal.regulations.insertRegulation, {
+      sourceUrl: args.url,
+      agency: result.metadata?.ogSiteName ?? "Unknown",
+      extractedText: result.markdown ?? "",
+      summary: result.summary ?? result.metadata?.title ?? "",
+      affectedProjectIds: args.projectId ? [args.projectId] : [],
+      crawledAt: now,
+      isNew: true,
+    });
+
+    return {
+      id,
+      url: args.url,
+      title: result.metadata?.title ?? "",
+      summary: result.summary ?? "",
+      markdown: result.markdown ?? "",
+    };
+  },
+});
