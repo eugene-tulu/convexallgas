@@ -60,7 +60,16 @@ Created the project structure from scratch:
 - **Bug 1 (recurring obligations)**: Added `lastCompletedAt` field to obligations schema. `markObligationCompleted` now resets `status` to "pending" and advances `nextCheckAt` so obligations stay in the rotation
 - **Bug 2 (regulations persistence)**: Added `searchAndPersist` and `scrapeAndPersist` actions that write to the `regulations` table. New `insertRegulation` internalMutation handles dedup by sourceUrl. Frontend "Scrape" button now persists results
 - **Bug 3 (search returns empty)**: Switched from embedding-based cosine similarity to LLM-based search using NVIDIA NIM. `searchDocuments` and `searchRegulations` ask the LLM which documents/regulations are relevant. Works with seed data (no embeddings needed)
-- **Auto-reminders**: New `reminders.ts` module with `sendReminderEmail` action. Cron now schedules reminder emails for due/overdue obligations via AgentMail (sends to `AGENTMAIL_DOMAIN`)
+- **Auto-reminders**: New `reminders.ts` module with `sendReminderEmail` action. Cron now schedules reminder emails for due/overdue obligations via AgentMail
+
+### 2026-09-02 - fix auto-reminder recipient bug
+- Added `contactEmail` field to projects schema (optional, with index by jurisdiction preserved)
+- `seed.ts` now inserts demo project with `contactEmail: "compliance-officer@merced-solar.example.com"`
+- `checkDueObligations` now reads `project.contactEmail` and passes it to `sendReminderEmail` as the recipient
+- When no `contactEmail` is set, cron logs a `reminder-skipped` event instead of silently attempting to send to the domain string
+- `sendReminderEmail` throws an explicit error if called without a valid recipient (fail-loud instead of silent bounce)
+- Added `projects:updateContactEmail` mutation to backfill/update existing projects
+- Updated the existing demo project with the contact email via the new mutation
 
 ### 2026-09-02 - user-facing UI
 - Built complete React dashboard with ConvexProvider for reactive updates

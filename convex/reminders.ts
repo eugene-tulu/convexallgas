@@ -30,6 +30,12 @@ export const sendReminderEmail = internalAction({
     recipient: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    if (!args.recipient || !args.recipient.includes("@")) {
+      throw new Error(
+        `sendReminderEmail: no valid recipient. projectName="${args.projectName}" obligation="${args.obligationText}". Set contactEmail on the project.`
+      );
+    }
+
     const client = getClient();
     const inbox = await ensureInbox(client);
 
@@ -49,11 +55,11 @@ This is an automated reminder from the EIA Compliance Copilot. Please take actio
 Reply to this email with "done" to mark it complete, or visit the dashboard for more options.`;
 
     await client.inboxes.messages.send(inbox.inboxId, {
-      to: args.recipient ?? env.AGENTMAIL_DOMAIN!,
+      to: args.recipient,
       subject,
       text: body,
     });
 
-    return { success: true, inbox: inbox.email };
+    return { success: true, inbox: inbox.email, recipient: args.recipient };
   },
 });

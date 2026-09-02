@@ -7,6 +7,7 @@ export default defineSchema({
     jurisdiction: v.string(),
     projectType: v.string(),
     status: v.string(),
+    contactEmail: v.optional(v.string()),
   }).index("by_jurisdiction", ["jurisdiction"]),
 
   regulations: defineTable({

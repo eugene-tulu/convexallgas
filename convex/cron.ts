@@ -13,6 +13,9 @@ export const checkDueObligations = internalMutation({
       .collect();
 
     const results = [];
+    let remindersSent = 0;
+    let remindersSkipped = 0;
+
     for (const obligation of dueObligations) {
       const isOverdue = obligation.deadline < now;
 
@@ -20,28 +23,40 @@ export const checkDueObligations = internalMutation({
         await ctx.db.patch(obligation._id, { status: "overdue" });
         results.push({ id: obligation._id, status: "overdue", commitmentText: obligation.commitmentText });
       }
-    }
 
-    for (const obligation of dueObligations) {
       const project = await ctx.db.get(obligation.projectId);
       if (!project) continue;
+
+      const recipient = project.contactEmail;
+      if (!recipient || !recipient.includes("@")) {
+        remindersSkipped++;
+        await ctx.runMutation(internal.eventLog.logEvent, {
+          table: "obligations",
+          rowId: obligation._id,
+          action: "reminder-skipped",
+          summary: `No contactEmail on project "${project.name}" - reminder skipped`,
+        });
+        continue;
+      }
 
       await ctx.scheduler.runAfter(0, internal.reminders.sendReminderEmail, {
         projectName: project.name,
         obligationText: obligation.commitmentText,
         deadline: obligation.deadline,
+        recipient,
       });
+      remindersSent++;
     }
 
-    if (results.length > 0) {
+    if (results.length > 0 || remindersSent > 0 || remindersSkipped > 0) {
       await ctx.runMutation(internal.eventLog.logEvent, {
         table: "obligations",
         rowId: "cron-check",
         action: "reminder",
-        summary: `${results.length} obligations marked overdue, reminder emails scheduled`,
+        summary: `${results.length} overdue, ${remindersSent} reminders sent, ${remindersSkipped} skipped (no contactEmail)`,
       });
     }
 
-    return results;
+    return { overdue: results.length, remindersSent, remindersSkipped };
   },
 });

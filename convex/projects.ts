@@ -1,4 +1,5 @@
-import { query } from "./_generated/server";
+import { v } from "convex/values";
+import { query, mutation } from "./_generated/server";
 
 export const list = query({
   args: {},
@@ -14,5 +15,16 @@ export const listActive = query({
       .query("projects")
       .filter((q) => q.eq(q.field("status"), "active"))
       .collect();
+  },
+});
+
+export const updateContactEmail = mutation({
+  args: {
+    id: v.id("projects"),
+    contactEmail: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.id, { contactEmail: args.contactEmail });
+    return { success: true };
   },
 });

@@ -21,6 +21,7 @@ export const seed = mutation({
       jurisdiction: "California",
       projectType: "Wind",
       status: "active",
+      contactEmail: "compliance-officer@merced-solar.example.com",
     });
 
     await ctx.db.insert("obligations", {
