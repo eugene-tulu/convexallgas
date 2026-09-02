@@ -62,7 +62,7 @@ export const sendEmail = action({
   },
 });
 
-export const listMessages = internalAction({
+export const listMessages = action({
   args: {
     inboxId: v.string(),
     limit: v.optional(v.number()),
@@ -76,7 +76,7 @@ export const listMessages = internalAction({
   },
 });
 
-export const searchMessages = internalAction({
+export const searchMessages = action({
   args: {
     inboxId: v.string(),
     query: v.string(),

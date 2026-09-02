@@ -2,7 +2,7 @@
 
 - **Project:** convexallgas
 - **Event:** Convex All Gas Hackathon
-- **What it does:** A compliance tracking app for EIA (Environmental Impact Assessment) projects. It crawls regulatory sources, extracts documents, tracks compliance obligations, and emails reminders.
+- **What it does:** A compliance tracking app for EIA (Environmental Impact Assessment) projects. Uses Firecrawl to crawl regulatory sources, NVIDIA NIM LLM to extract compliance obligations, Convex database to track them, and AgentMail to send reminder emails. The user can search regulatory content, scrape and summarize pages, draft AI-powered reminder emails, and manage their compliance inbox - all in a single dashboard.
 - **Live app:** https://basic-hippopotamus-995.convex.cloud
 - **Repo:** none
 - **Frontend:** https://basic-hippopotamus-995.convex.site
@@ -55,6 +55,24 @@ Created the project structure from scratch:
 - All action files use `"use node";` directive per Convex guidelines
 - Fixed env var access to use `env` from `./_generated/server` per Convex guidelines
 - Made `fetchMessage` and `registerWebhook` internalActions for secure HTTP routing
+
+### 2026-09-02 - user-facing UI
+- Built complete React dashboard with ConvexProvider for reactive updates
+- 5 tabs: Dashboard, Crawl, Search, Inbox, Reminders
+- **Dashboard**: project stats, obligation list with complete/snooze actions
+- **Crawl**: Firecrawl search + scrape for regulatory content
+- **Search**: semantic document search using NVIDIA NIM embeddings
+- **Inbox**: AgentMail inbox management and message listing
+- **Reminders**: AI-drafted compliance email sender using NVIDIA NIM
+- Made `listMessages` and `searchMessages` public actions so the frontend can call them
+- All components use Convex reactive queries - updates appear in real-time
+
+### 2026-09-02 - expanded agentmail capabilities
+- Expanded mail.ts to cover the full AgentMail API surface
+- Added 13 functions: inbox CRUD, message list/search/get/attachment/raw/update, webhook CRUD
+- Made `listMessages` and `searchMessages` public actions for frontend access
+- Other sensitive operations (fetchMessage, registerWebhook, listWebhooks, etc.) remain internal
+- HTTP endpoint `/webhooks/agentmail` now processes incoming emails via fetchMessage
 
 ### 2026-09-02 - expanded firecrawl capabilities
 - Added comprehensive Firecrawl actions: `scrape`, `search`, `crawl`, `map`, `research` (scientific papers), and `crawlSource` (alias for scrape)
