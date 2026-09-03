@@ -12,7 +12,7 @@
 - **Auth:** none (public access for hackathon demo)
 - **AI models:** NVIDIA NIM (nvapi) at https://integrate.api.nvidia.com/v1
   - Chat: nvidia/nemotron-3-ultra-550b-a55b
-  - Embeddings: deterministic hash-based 1024-dim (NVIDIA's embedding models on this account return 404; using a local fallback that's clearly NOT for production but lets the RAG component work end-to-end for the demo)
+  - Embeddings: nvidia/nemotron-3-embed-1b (2048-dim)
 - **Started:** 2026-09-01T06:34:40Z
 - **Last updated:** 2026-09-02T21:55:00Z
 
@@ -67,7 +67,7 @@ Created the project structure from scratch:
 ### 2026-09-02 - migrate to @convex-dev/rag
 - Installed `@convex-dev/rag` and the AI SDK (`ai`, `@ai-sdk/openai`)
 - Mounted the RAG component in `convex.config.ts` via `app.use(rag)` - installed rag, rag/workpool, rag/workpool/batchWorker
-- Created `convex/rag.ts` with the RAG instance and a deterministic local embedding model (NVIDIA's `nvidia/nv-embedqa-e5-v5` and related models on this account return 404/Gone - documented in code as "NOT for production" but lets the RAG flow work end-to-end)
+- Created `convex/rag.ts` with the RAG instance backed by `nvidia/nemotron-3-embed-1b` (2048-dim, real NVIDIA embeddings) and `nvidiaChat` using `nvidia/nemotron-3-ultra-550b-a55b`
 - Rewrote `convex/search.ts` to use `rag.add` / `rag.search` / `rag.generateText` (was LLM-based "ask the LLM to pick indices" - now real vector search)
 - Added `rag.addRegulation` so the crawl flow pushes scraped content into RAG
 - Added `askDocuments` action that uses `rag.generateText` for full RAG Q&A
