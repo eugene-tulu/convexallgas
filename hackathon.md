@@ -64,6 +64,17 @@ Created the project structure from scratch:
 - **Bug 3 (search returns empty)**: Switched from embedding-based cosine similarity to LLM-based search using NVIDIA NIM. `searchDocuments` and `searchRegulations` ask the LLM which documents/regulations are relevant. Works with seed data (no embeddings needed)
 - **Auto-reminders**: New `reminders.ts` module with `sendReminderEmail` action. Cron now schedules reminder emails for due/overdue obligations via AgentMail
 
+### 2026-09-02 - harden email reply handler
+- `webhookProcessor.processReply` now takes `html` (optional) in addition to `text`
+- Added an `ensureText` helper that: uses `text` if present, else strips tags from `html` (regex-based HTML→text), else calls `mail.fetchMessage` to re-fetch from AgentMail
+- The `textSource` ("text" | "html" | "refetch" | "empty") is now logged in the event and returned in the response so failures are debuggable
+- `http.ts` reads `body.event_type` first (AgentMail's actual snake_case field), then falls back to `eventType`/`type`, and rejects anything that isn't `message.received` (logged as "ignored event") so future event types won't accidentally trigger the reply path
+- `http.ts` also extracts `html` and passes it through to the processor
+- Verified:
+  - text="done" → `{ processed: true, action: "done", textSource: "text" }` (existing path)
+  - text="", html="<p>done</p>" → `{ processed: true, action: "done", textSource: "html" }` (HTML strip path)
+  - text="", html="" → re-fetch attempted, fails with NotFoundError on fake test inbox, but doesn't crash; returns `{ processed: false, reason: "unknown command", textSource: "empty" }`
+
 ### 2026-09-02 - close the email reply loop
 - `mail.ts` `getOrCreateInbox` now auto-registers an AgentMail webhook for `message.received` events pointing at `${CONVEX_SITE_URL}/webhooks/agentmail` on inbox creation (with a dedup check)
 - `reminders.ts` `sendReminderEmail` now requires an `obligationId` and embeds it as `[obligation:<id>]` in the email subject and body so replies can be traced back

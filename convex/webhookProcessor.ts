@@ -12,6 +12,56 @@ function getClient() {
 
 const OBLIGATION_TAG_RE = /\[obligation:([a-zA-Z0-9_-]+)\]/;
 
+function htmlToText(html: string): string {
+  return html
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+async function ensureText(
+  client: AgentMailClient,
+  inboxId: string,
+  messageId: string,
+  initialText: string,
+  initialHtml: string
+): Promise<{ text: string; source: "text" | "html" | "refetch" | "empty" }> {
+  if (initialText && initialText.trim().length > 0) {
+    return { text: initialText, source: "text" };
+  }
+  if (initialHtml && initialHtml.trim().length > 0) {
+    const stripped = htmlToText(initialHtml);
+    if (stripped.length > 0) {
+      return { text: stripped, source: "html" };
+    }
+  }
+  try {
+    const message = await client.inboxes.messages.get(inboxId, messageId);
+    if (message.text && message.text.trim().length > 0) {
+      return { text: message.text, source: "refetch" };
+    }
+    if (message.html && message.html.trim().length > 0) {
+      const stripped = htmlToText(message.html);
+      if (stripped.length > 0) {
+        return { text: stripped, source: "refetch" };
+      }
+    }
+  } catch (e) {
+    console.error("ensureText refetch failed:", e);
+  }
+  return { text: "", source: "empty" };
+}
+
 function parseCommand(text: string): { action: "done" | "snooze" | "report" | "unknown"; snoozeDays?: number; note?: string } {
   const lower = text.toLowerCase().trim();
   if (lower === "done" || lower === "complete" || lower === "✓" || lower.startsWith("done ") || lower.startsWith("complete ")) {
@@ -35,21 +85,33 @@ export const processReply = internalAction({
     subject: v.string(),
     from: v.string(),
     text: v.string(),
+    html: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const tagMatch = args.subject.match(OBLIGATION_TAG_RE) ?? args.text.match(OBLIGATION_TAG_RE);
+    const client = getClient();
+    const { text, source: textSource } = await ensureText(
+      client,
+      args.inboxId,
+      args.messageId,
+      args.text,
+      args.html ?? ""
+    );
+
+    const tagMatch =
+      args.subject.match(OBLIGATION_TAG_RE) ??
+      text.match(OBLIGATION_TAG_RE);
     if (!tagMatch) {
       await ctx.runMutation(internal.eventLog.logEvent, {
         table: "webhook",
         rowId: args.messageId,
         action: "ignored",
-        summary: `Reply from ${args.from} did not include an [obligation:<id>] tag - subject: "${args.subject.slice(0, 80)}"`,
+        summary: `Reply from ${args.from} did not include an [obligation:<id>] tag - subject: "${args.subject.slice(0, 80)}", text-source: ${textSource}, text-len: ${text.length}`,
       });
       return { processed: false, reason: "no obligation tag" };
     }
 
     const obligationId = tagMatch[1] as Id<"obligations">;
-    const command = parseCommand(args.text);
+    const command = parseCommand(text);
     const from = args.from;
 
     if (command.action === "unknown") {
@@ -57,15 +119,15 @@ export const processReply = internalAction({
         table: "obligations",
         rowId: obligationId,
         action: "reply-unknown",
-        summary: `Reply from ${from} didn't match a known command: "${args.text.slice(0, 100)}"`,
+        summary: `Reply from ${from} didn't match a known command (text-source=${textSource}, text-len=${text.length}): "${text.slice(0, 100)}"`,
       });
-      return { processed: false, reason: "unknown command" };
+      return { processed: false, reason: "unknown command", textSource };
     }
 
     if (command.action === "done") {
       await ctx.runMutation(internal.obligations.markObligationCompletedById, {
         obligationId,
-        source: `email-reply from ${from}`,
+        source: `email-reply from ${from} (text-source: ${textSource})`,
       });
       await ctx.runMutation(internal.eventLog.logEvent, {
         table: "obligations",
@@ -73,7 +135,7 @@ export const processReply = internalAction({
         action: "completed-by-reply",
         summary: `Marked complete via email reply from ${from}`,
       });
-      return { processed: true, action: "done", obligationId };
+      return { processed: true, action: "done", obligationId, textSource };
     }
 
     if (command.action === "snooze" && command.snoozeDays) {
@@ -81,7 +143,7 @@ export const processReply = internalAction({
       await ctx.runMutation(internal.obligations.snoozeObligationById, {
         obligationId,
         snoozeMs,
-        source: `email-reply from ${from}`,
+        source: `email-reply from ${from} (text-source: ${textSource})`,
       });
       await ctx.runMutation(internal.eventLog.logEvent, {
         table: "obligations",
@@ -89,7 +151,7 @@ export const processReply = internalAction({
         action: "snoozed-by-reply",
         summary: `Snoozed ${command.snoozeDays}d via email reply from ${from}`,
       });
-      return { processed: true, action: "snooze", obligationId, snoozeDays: command.snoozeDays };
+      return { processed: true, action: "snooze", obligationId, snoozeDays: command.snoozeDays, textSource };
     }
 
     if (command.action === "report" && command.note) {
@@ -99,7 +161,7 @@ export const processReply = internalAction({
         action: "note-from-reply",
         summary: `Note from ${from}: ${command.note.slice(0, 200)}`,
       });
-      return { processed: true, action: "report", obligationId, note: command.note };
+      return { processed: true, action: "report", obligationId, note: command.note, textSource };
     }
 
     return { processed: false, reason: "unhandled command variant" };
