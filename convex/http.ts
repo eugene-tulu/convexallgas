@@ -10,20 +10,36 @@ http.route({
   handler: httpAction(async (ctx, request) => {
     try {
       const body = await request.json();
-      const inboxId = body.inboxId ?? body.inbox_id;
-      const messageId = body.messageId ?? body.message_id;
+      const eventType = body.type ?? body.eventType ?? "message.received";
+      const message = body.message ?? body.data?.message ?? body;
 
-      if (inboxId && messageId) {
-        await ctx.runAction(internal.mail.fetchMessage, {
-          inboxId,
-          messageId,
-        });
+      const inboxId: string | undefined = message.inboxId ?? message.inbox_id;
+      const messageId: string | undefined = message.messageId ?? message.message_id;
+      const subject: string = (message.subject ?? "").toString();
+      const from: string = (message.from ?? "").toString();
+      const text: string = (message.text ?? message.extractedText ?? "").toString();
+
+      if (eventType !== "message.received") {
+        return new Response("ignored", { status: 200 });
       }
-    } catch {
-      // Ignore parsing errors - just return 200
-    }
 
-    return new Response("OK", { status: 200 });
+      if (!inboxId || !messageId) {
+        return new Response("missing fields", { status: 400 });
+      }
+
+      await ctx.runAction(internal.webhookProcessor.processReply, {
+        inboxId,
+        messageId,
+        subject,
+        from,
+        text,
+      });
+
+      return new Response("OK", { status: 200 });
+    } catch (e) {
+      console.error("webhook error:", e);
+      return new Response("error", { status: 500 });
+    }
   }),
 });
 

@@ -41,6 +41,7 @@ export const checkDueObligations = internalMutation({
 
       await ctx.scheduler.runAfter(0, internal.reminders.sendReminderEmail, {
         projectName: project.name,
+        obligationId: obligation._id,
         obligationText: obligation.commitmentText,
         deadline: obligation.deadline,
         recipient,

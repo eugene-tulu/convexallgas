@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { query, mutation, internalQuery } from "./_generated/server";
+import { query, mutation, internalQuery, internalMutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 
 export const listObligations = query({
@@ -95,6 +95,62 @@ export const snoozeObligation = mutation({
       rowId: args.id,
       action: "snoozed",
       summary: `Obligation "${obligation.commitmentText}" snoozed`,
+    });
+
+    return { success: true, newNextCheckAt };
+  },
+});
+
+export const markObligationCompletedById = internalMutation({
+  args: {
+    obligationId: v.id("obligations"),
+    source: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const obligation = await ctx.db.get(args.obligationId);
+    if (!obligation) return { success: false, reason: "not found" };
+
+    const now = Date.now();
+    const recurrenceMs = parseRecurrence(obligation.recurrence);
+    const newNextCheckAt = now + recurrenceMs;
+
+    await ctx.db.patch(args.obligationId, {
+      lastCompletedAt: now,
+      nextCheckAt: newNextCheckAt,
+      status: "pending",
+    });
+
+    await ctx.runMutation(internal.eventLog.logEvent, {
+      table: "obligations",
+      rowId: args.obligationId,
+      action: "completed",
+      summary: `Obligation "${obligation.commitmentText}" completed (source: ${args.source}), next due ${new Date(newNextCheckAt).toISOString()}`,
+    });
+
+    return { success: true, newNextCheckAt };
+  },
+});
+
+export const snoozeObligationById = internalMutation({
+  args: {
+    obligationId: v.id("obligations"),
+    snoozeMs: v.number(),
+    source: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const obligation = await ctx.db.get(args.obligationId);
+    if (!obligation) return { success: false, reason: "not found" };
+
+    const newNextCheckAt = Date.now() + args.snoozeMs;
+    await ctx.db.patch(args.obligationId, {
+      nextCheckAt: newNextCheckAt,
+    });
+
+    await ctx.runMutation(internal.eventLog.logEvent, {
+      table: "obligations",
+      rowId: args.obligationId,
+      action: "snoozed",
+      summary: `Obligation "${obligation.commitmentText}" snoozed (source: ${args.source})`,
     });
 
     return { success: true, newNextCheckAt };

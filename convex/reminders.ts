@@ -18,6 +18,18 @@ async function ensureInbox(client: AgentMailClient) {
       username: COMPLIANCE_INBOX,
       displayName: "Compliance Bot",
     });
+
+    const siteUrl = env.CONVEX_SITE_URL;
+    if (siteUrl) {
+      try {
+        await client.inboxes.webhooks.create(inbox.inboxId, {
+          url: `${siteUrl}/webhooks/agentmail`,
+          eventTypes: ["message.received"],
+        });
+      } catch (e) {
+        console.error("Failed to register webhook on compliance inbox:", e);
+      }
+    }
   }
   return inbox;
 }
@@ -25,6 +37,7 @@ async function ensureInbox(client: AgentMailClient) {
 export const sendReminderEmail = internalAction({
   args: {
     projectName: v.string(),
+    obligationId: v.optional(v.string()),
     obligationText: v.string(),
     deadline: v.number(),
     recipient: v.optional(v.string()),
@@ -41,18 +54,23 @@ export const sendReminderEmail = internalAction({
 
     const deadlineStr = new Date(args.deadline).toLocaleDateString();
     const daysOverdue = Math.ceil((Date.now() - args.deadline) / (1000 * 60 * 60 * 24));
-    const subject = daysOverdue > 0
-      ? `OVERDUE: ${args.obligationText}`
-      : `Reminder: ${args.obligationText}`;
+    const tag = args.obligationId ? `[obligation:${args.obligationId}]` : "[obligation:unknown]";
+    const subject = `${tag} ${daysOverdue > 0 ? "OVERDUE" : "Reminder"}: ${args.obligationText}`;
     const body = `Project: ${args.projectName}
 
 Obligation: ${args.obligationText}
 Deadline: ${deadlineStr}
 ${daysOverdue > 0 ? `Status: ${daysOverdue} day(s) overdue` : "Status: Due now"}
+Tracking ID: ${tag}
 
 This is an automated reminder from the EIA Compliance Copilot. Please take action to complete or update this obligation.
 
-Reply to this email with "done" to mark it complete, or visit the dashboard for more options.`;
+REPLY COMMANDS:
+  Reply with "done" or "complete" - mark this obligation complete
+  Reply with "snooze 7" or "snooze 14" - postpone by N days
+  Reply with "report" or "update" - add a status update (followed by your note)
+
+Or visit the dashboard to take action directly.`;
 
     await client.inboxes.messages.send(inbox.inboxId, {
       to: args.recipient,
@@ -60,6 +78,12 @@ Reply to this email with "done" to mark it complete, or visit the dashboard for 
       text: body,
     });
 
-    return { success: true, inbox: inbox.email, recipient: args.recipient };
+    return {
+      success: true,
+      inbox: inbox.email,
+      recipient: args.recipient,
+      subject,
+      tag,
+    };
   },
 });

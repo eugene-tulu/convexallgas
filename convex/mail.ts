@@ -19,6 +19,25 @@ export const getOrCreateInbox = action({
       username: args.username,
       displayName: args.displayName ?? args.username,
     });
+
+    const siteUrl = env.CONVEX_SITE_URL;
+    if (siteUrl) {
+      try {
+        const existing = await client.inboxes.webhooks.list(inbox.inboxId);
+        const alreadyRegistered = (existing.webhooks ?? []).some(
+          (w) => w.url === `${siteUrl}/webhooks/agentmail`
+        );
+        if (!alreadyRegistered) {
+          await client.inboxes.webhooks.create(inbox.inboxId, {
+            url: `${siteUrl}/webhooks/agentmail`,
+            eventTypes: ["message.received"],
+          });
+        }
+      } catch (e) {
+        console.error("Failed to register webhook:", e);
+      }
+    }
+
     return {
       inboxId: inbox.inboxId,
       email: inbox.email,

@@ -23,6 +23,7 @@ import type * as regulations from "../regulations.js";
 import type * as reminders from "../reminders.js";
 import type * as search from "../search.js";
 import type * as seed from "../seed.js";
+import type * as webhookProcessor from "../webhookProcessor.js";
 
 import type {
   ApiFromModules,
@@ -46,6 +47,7 @@ declare const fullApi: ApiFromModules<{
   reminders: typeof reminders;
   search: typeof search;
   seed: typeof seed;
+  webhookProcessor: typeof webhookProcessor;
 }>;
 
 /**

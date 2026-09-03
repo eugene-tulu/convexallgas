@@ -64,6 +64,18 @@ Created the project structure from scratch:
 - **Bug 3 (search returns empty)**: Switched from embedding-based cosine similarity to LLM-based search using NVIDIA NIM. `searchDocuments` and `searchRegulations` ask the LLM which documents/regulations are relevant. Works with seed data (no embeddings needed)
 - **Auto-reminders**: New `reminders.ts` module with `sendReminderEmail` action. Cron now schedules reminder emails for due/overdue obligations via AgentMail
 
+### 2026-09-02 - close the email reply loop
+- `mail.ts` `getOrCreateInbox` now auto-registers an AgentMail webhook for `message.received` events pointing at `${CONVEX_SITE_URL}/webhooks/agentmail` on inbox creation (with a dedup check)
+- `reminders.ts` `sendReminderEmail` now requires an `obligationId` and embeds it as `[obligation:<id>]` in the email subject and body so replies can be traced back
+- Email body documents reply commands: "done", "complete", "snooze N", "report <note>"
+- New `convex/webhookProcessor.ts` with `processReply` (parses subject for the tag, runs the command, calls internal mutations) and `registerAllWebhooks` (backfills for existing inboxes)
+- `convex/http.ts` `/webhooks/agentmail` now extracts inboxId/messageId/subject/from/text and calls `processReply`
+- `convex/obligations.ts` gained `markObligationCompletedById` and `snoozeObligationById` internal mutations so the webhook can drive them
+- Frontend `Dashboard` empty-state now points at the actual path to populate (Seed Demo Data button, which is now in the header)
+- `InboxPanel` got a Refresh button (since it uses `useAction` for the external API, not reactive queries)
+- Verified end-to-end by simulating an email reply: `processReply` correctly marked the obligation complete (with `lastCompletedAt` set, `nextCheckAt` advanced per recurrence, status reset to "pending") and a separate snooze reply advanced nextCheckAt by 14 days
+- Note: the `registerAllWebhooks` call hit AgentMail's `missing_permission` for `inbox_read` on this API key, so backfill on existing inboxes needs to be done by creating a new inbox (which auto-registers) or with a more-permissioned key
+
 ### 2026-09-02 - migrate to @convex-dev/rag
 - Installed `@convex-dev/rag` and the AI SDK (`ai`, `@ai-sdk/openai`)
 - Mounted the RAG component in `convex.config.ts` via `app.use(rag)` - installed rag, rag/workpool, rag/workpool/batchWorker

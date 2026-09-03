@@ -16,6 +16,7 @@ export default function App() {
   const project = projects.find((p) => p._id === selectedProjectId) ?? projects[0];
 
   const seedRag = useAction(api.search.seedRagDemo);
+  const seedDemo = useMutation(api.seed.seed);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -28,6 +29,12 @@ export default function App() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => seedDemo({})}
+              className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
+            >
+              Seed Demo Data
+            </button>
             <button
               onClick={() => seedRag({})}
               className="px-3 py-1 text-sm bg-purple-600 text-white rounded hover:bg-purple-700"
@@ -109,7 +116,14 @@ function Dashboard({ projects, regulations, obligations, projectId }: any) {
         </div>
         <div className="divide-y divide-gray-200">
           {projectObligations.length === 0 ? (
-            <p className="px-6 py-4 text-gray-500">No obligations yet. Click "Crawl" to get started.</p>
+            <div className="px-6 py-6 text-gray-500">
+              <p className="mb-2">No compliance obligations for this project yet.</p>
+              <p className="text-sm">
+                To populate, run the seed action from the Convex dashboard
+                (function <code className="bg-gray-100 px-1 rounded">api.seed.seed</code>)
+                or click "Seed Demo Data" in the header above.
+              </p>
+            </div>
           ) : (
             projectObligations.map((ob: any) => (
               <ObligationRow key={ob._id} obligation={ob} />
@@ -450,12 +464,20 @@ function InboxPanel() {
       <div className="bg-white rounded-lg shadow p-6">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-lg font-semibold">Inbox</h2>
-          <button
-            onClick={handleCreateInbox}
-            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-          >
-            Create Inbox
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => { loadInboxes(); if (selectedInbox) loadMessages(); }}
+              className="px-3 py-1 text-sm bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+            >
+              Refresh
+            </button>
+            <button
+              onClick={handleCreateInbox}
+              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+            >
+              Create Inbox
+            </button>
+          </div>
         </div>
         <select
           className="w-full border border-gray-300 rounded px-3 py-2"
