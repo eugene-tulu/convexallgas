@@ -67,9 +67,9 @@ function parseCommand(text: string): { action: "done" | "snooze" | "report" | "u
   if (lower === "done" || lower === "complete" || lower === "✓" || lower.startsWith("done ") || lower.startsWith("complete ")) {
     return { action: "done" };
   }
-  const snoozeMatch = lower.match(/^snooze\s+(\d+)/);
+  const snoozeMatch = lower.match(/^snooze(?:\s+(\d+))?/);
   if (snoozeMatch) {
-    return { action: "snooze", snoozeDays: parseInt(snoozeMatch[1], 10) };
+    return { action: "snooze", snoozeDays: snoozeMatch[1] ? parseInt(snoozeMatch[1], 10) : 7 };
   }
   if (lower.startsWith("report") || lower.startsWith("update")) {
     const note = text.replace(/^(report|update):?\s*/i, "").trim();

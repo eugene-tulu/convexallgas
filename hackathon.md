@@ -66,7 +66,7 @@ Created the project structure from scratch:
 
 ### 2026-09-02 - channel semantics + Activity panel
 - Documented the email-vs-dashboard channel split: email is the push channel (reactions to reminders, away-from-desk), dashboard is the pull channel (discovery, bulk ops, strategy)
-- Email supports: `done`, `snooze N` (no number = 7d), `report <note>` (log without completing), arbitrary `snooze 14`, `snooze 30`
+- Email supports: `done`, `snooze N` (or bare `snooze` = 7d default, case-insensitive), `report <note>` (log without completing)
 - Dashboard supports: full landscape view, RAG Q&A, crawling new sources, seeding obligations, bulk editing, audit history
 - Added `convex/events.ts` with `recent`, `forObligation`, `byAction` queries against the existing `events` table
 - New Activity tab on the dashboard with filterable audit log (All / Reminders / Email replies / Completions / Snoozes) so users can see "this was completed via email" vs "via dashboard"
