@@ -12,6 +12,7 @@ import type * as cron from "../cron.js";
 import type * as crons from "../crons.js";
 import type * as documents from "../documents.js";
 import type * as eventLog from "../eventLog.js";
+import type * as events from "../events.js";
 import type * as firecrawl from "../firecrawl.js";
 import type * as http from "../http.js";
 import type * as llm from "../llm.js";
@@ -36,6 +37,7 @@ declare const fullApi: ApiFromModules<{
   crons: typeof crons;
   documents: typeof documents;
   eventLog: typeof eventLog;
+  events: typeof events;
   firecrawl: typeof firecrawl;
   http: typeof http;
   llm: typeof llm;

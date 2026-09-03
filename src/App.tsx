@@ -3,7 +3,7 @@ import { useQuery, useAction, useMutation } from "convex/react";
 import { api } from "../convex/_generated/api";
 import { Id } from "../convex/_generated/dataModel";
 
-type Tab = "dashboard" | "crawl" | "search" | "inbox" | "reminders";
+type Tab = "dashboard" | "crawl" | "search" | "inbox" | "reminders" | "activity";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
@@ -55,7 +55,7 @@ export default function App() {
           </div>
         </div>
         <nav className="max-w-7xl mx-auto px-6 flex gap-1">
-          {(["dashboard", "crawl", "search", "inbox", "reminders"] as Tab[]).map((tab) => (
+          {(["dashboard", "crawl", "search", "inbox", "reminders", "activity"] as Tab[]).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -84,6 +84,7 @@ export default function App() {
         {activeTab === "search" && <SearchPanel />}
         {activeTab === "inbox" && <InboxPanel />}
         {activeTab === "reminders" && <RemindersPanel project={project} />}
+        {activeTab === "activity" && <ActivityPanel />}
       </main>
     </div>
   );
@@ -140,6 +141,17 @@ function ObligationRow({ obligation }: any) {
   const snooze = useMutation(api.obligations.snoozeObligation);
   const isOverdue = obligation.status === "overdue";
   const daysUntil = Math.ceil((obligation.deadline - Date.now()) / (1000 * 60 * 60 * 24));
+  const history = useQuery(api.events.forObligation, { obligationId: obligation._id }) ?? [];
+  const lastAction = history[0];
+  const lastSourceLabel = lastAction
+    ? lastAction.action.includes("reply")
+      ? "via email"
+      : lastAction.action === "completed"
+      ? "via dashboard"
+      : lastAction.action === "snoozed"
+      ? "via dashboard"
+      : ""
+    : "";
 
   return (
     <div className="px-6 py-4 flex items-center justify-between">
@@ -148,6 +160,11 @@ function ObligationRow({ obligation }: any) {
         <p className="text-sm text-gray-500">
           Deadline: {new Date(obligation.deadline).toLocaleDateString()} (
           {daysUntil > 0 ? `${daysUntil}d left` : `${Math.abs(daysUntil)}d ago`})
+          {lastSourceLabel && (
+            <span className="ml-2 inline-block px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">
+              last action: {lastSourceLabel}
+            </span>
+          )}
         </p>
       </div>
       <div className="flex items-center gap-2">
@@ -609,6 +626,109 @@ function RemindersPanel({ project }: any) {
           >
             {sent ? "Sent!" : "Send Email"}
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ActivityPanel() {
+  const events = useQuery(api.events.recent, { limit: 100 }) ?? [];
+  const [filter, setFilter] = useState<string>("");
+
+  const filtered = filter
+    ? events.filter((e: any) => e.action.includes(filter))
+    : events;
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-white rounded-lg shadow p-6">
+        <h2 className="text-lg font-semibold mb-2">Activity Log</h2>
+        <p className="text-sm text-gray-500 mb-4">
+          Audit trail of every action: cron reminders, dashboard clicks, and email replies.
+          Filter by action type to see only one channel.
+        </p>
+        <div className="flex gap-2 flex-wrap mb-4">
+          <button
+            onClick={() => setFilter("")}
+            className={`px-3 py-1 text-sm rounded ${
+              filter === "" ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+            }`}
+          >
+            All
+          </button>
+          <button
+            onClick={() => setFilter("reminder")}
+            className={`px-3 py-1 text-sm rounded ${
+              filter === "reminder" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+            }`}
+          >
+            Reminders
+          </button>
+          <button
+            onClick={() => setFilter("reply")}
+            className={`px-3 py-1 text-sm rounded ${
+              filter === "reply" ? "bg-purple-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+            }`}
+          >
+            Email replies
+          </button>
+          <button
+            onClick={() => setFilter("completed")}
+            className={`px-3 py-1 text-sm rounded ${
+              filter === "completed" ? "bg-green-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+            }`}
+          >
+            Completions
+          </button>
+          <button
+            onClick={() => setFilter("snoozed")}
+            className={`px-3 py-1 text-sm rounded ${
+              filter === "snoozed" ? "bg-yellow-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+            }`}
+          >
+            Snoozes
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-lg shadow">
+        <div className="px-6 py-4 border-b border-gray-200">
+          <h3 className="font-semibold">Events ({filtered.length})</h3>
+        </div>
+        <div className="divide-y divide-gray-200 max-h-[600px] overflow-y-auto">
+          {filtered.length === 0 ? (
+            <p className="px-6 py-4 text-gray-500">No events match the current filter.</p>
+          ) : (
+            filtered.map((e: any) => (
+              <div key={e._id} className="px-6 py-3">
+                <div className="flex items-baseline justify-between">
+                  <p className="text-sm font-medium text-gray-900">
+                    <span className={`px-2 py-0.5 rounded text-xs mr-2 ${
+                      e.action.includes("reply")
+                        ? "bg-purple-100 text-purple-800"
+                        : e.action.includes("reminder")
+                        ? "bg-blue-100 text-blue-800"
+                        : e.action === "completed"
+                        ? "bg-green-100 text-green-800"
+                        : e.action === "snoozed"
+                        ? "bg-yellow-100 text-yellow-800"
+                        : "bg-gray-100 text-gray-800"
+                    }`}>
+                      {e.action}
+                    </span>
+                    {e.summary}
+                  </p>
+                  <p className="text-xs text-gray-500 whitespace-nowrap ml-4">
+                    {new Date(e.timestamp).toLocaleString()}
+                  </p>
+                </div>
+                <p className="text-xs text-gray-400 mt-1">
+                  table: {e.table} • rowId: {e.rowId}
+                </p>
+              </div>
+            ))
+          )}
         </div>
       </div>
     </div>

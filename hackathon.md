@@ -64,6 +64,15 @@ Created the project structure from scratch:
 - **Bug 3 (search returns empty)**: Switched from embedding-based cosine similarity to LLM-based search using NVIDIA NIM. `searchDocuments` and `searchRegulations` ask the LLM which documents/regulations are relevant. Works with seed data (no embeddings needed)
 - **Auto-reminders**: New `reminders.ts` module with `sendReminderEmail` action. Cron now schedules reminder emails for due/overdue obligations via AgentMail
 
+### 2026-09-02 - channel semantics + Activity panel
+- Documented the email-vs-dashboard channel split: email is the push channel (reactions to reminders, away-from-desk), dashboard is the pull channel (discovery, bulk ops, strategy)
+- Email supports: `done`, `snooze N` (no number = 7d), `report <note>` (log without completing), arbitrary `snooze 14`, `snooze 30`
+- Dashboard supports: full landscape view, RAG Q&A, crawling new sources, seeding obligations, bulk editing, audit history
+- Added `convex/events.ts` with `recent`, `forObligation`, `byAction` queries against the existing `events` table
+- New Activity tab on the dashboard with filterable audit log (All / Reminders / Email replies / Completions / Snoozes) so users can see "this was completed via email" vs "via dashboard"
+- ObligationRow now shows a small "last action: via email" or "via dashboard" badge under the deadline based on the most recent event
+- All actions - cron, dashboard click, email reply - go through the same `events` table so the audit trail is complete and channel-agnostic
+
 ### 2026-09-02 - harden email reply handler
 - `webhookProcessor.processReply` now takes `html` (optional) in addition to `text`
 - Added an `ensureText` helper that: uses `text` if present, else strips tags from `html` (regex-based HTML→text), else calls `mail.fetchMessage` to re-fetch from AgentMail
