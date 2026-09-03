@@ -4,7 +4,7 @@
 - **Event:** Convex All Gas Hackathon
 - **What it does:** A compliance tracking app for EIA (Environmental Impact Assessment) projects. Uses Firecrawl to crawl regulatory sources, NVIDIA NIM LLM to extract compliance obligations, Convex database to track them, and AgentMail to send reminder emails. The user can search regulatory content, scrape and summarize pages, draft AI-powered reminder emails, and manage their compliance inbox - all in a single dashboard.
 - **Live app:** https://basic-hippopotamus-995.convex.cloud
-- **Repo:** none
+- **Repo:** https://github.com/eugene-tulu/convexallgas
 - **Frontend:** https://basic-hippopotamus-995.convex.site
 - **Convex deployment:** dev/gntulu (basic-hippopotamus-995)
 - **Components:** none
