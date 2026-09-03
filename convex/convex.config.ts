@@ -1,5 +1,6 @@
 import { defineApp } from "convex/server";
 import { v } from "convex/values";
+import rag from "@convex-dev/rag/convex.config.js";
 
 const app = defineApp({
   env: {
@@ -9,5 +10,7 @@ const app = defineApp({
     AGENTMAIL_DOMAIN: v.optional(v.string()),
   },
 });
+
+app.use(rag);
 
 export default app;

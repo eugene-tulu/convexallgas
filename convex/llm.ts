@@ -17,7 +17,7 @@ export const runLlmTask = action({
       baseURL: "https://integrate.api.nvidia.com/v1",
     });
     const response = await client.chat.completions.create({
-      model: args.model ?? "nvidia/llama-3.1-405b-instruct",
+      model: args.model ?? "nvidia/nemotron-3-ultra-550b-a55b",
       temperature: args.temperature ?? 0.7,
       messages: [
         ...(args.systemPrompt

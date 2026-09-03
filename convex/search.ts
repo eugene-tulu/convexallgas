@@ -1,121 +1,152 @@
 "use node";
 import { v } from "convex/values";
 import { action, internalAction } from "./_generated/server";
-import { env } from "./_generated/server";
-import { api } from "./_generated/api";
-import { internal } from "./_generated/api";
-import type { Doc } from "./_generated/dataModel";
-import OpenAI from "openai";
+import { rag, nvidiaChat } from "./rag";
+import type { EntryId } from "@convex-dev/rag";
+
+export const addDocument = action({
+  args: {
+    title: v.string(),
+    content: v.string(),
+    url: v.optional(v.string()),
+    projectId: v.optional(v.id("projects")),
+    importance: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const namespace = args.projectId ?? "global";
+    const { entryId, status, created } = await rag.add(ctx, {
+      namespace: `project-${namespace}`,
+      key: args.url ?? args.title,
+      text: `${args.title}\n\n${args.content}`,
+      title: args.title,
+      importance: args.importance ?? 0.5,
+    });
+    return { entryId: entryId as string, status, created };
+  },
+});
+
+export const addRegulation = action({
+  args: {
+    sourceUrl: v.string(),
+    title: v.string(),
+    content: v.string(),
+    summary: v.optional(v.string()),
+    agency: v.optional(v.string()),
+    projectId: v.optional(v.id("projects")),
+  },
+  handler: async (ctx, args) => {
+    const namespace = args.projectId ?? "global";
+    const text = `${args.title}\n\nAgency: ${args.agency ?? "Unknown"}\n\n${args.summary ?? ""}\n\n${args.content}`;
+    const { entryId, status, created } = await rag.add(ctx, {
+      namespace: `project-${namespace}`,
+      key: args.sourceUrl,
+      text,
+      title: args.title,
+      importance: 0.7,
+    });
+    return { entryId: entryId as string, status, created };
+  },
+});
 
 export const searchDocuments = action({
-  args: { query: v.string() },
+  args: {
+    query: v.string(),
+    projectId: v.optional(v.id("projects")),
+    limit: v.optional(v.number()),
+  },
   handler: async (ctx, args) => {
-    const docs: Doc<"documents">[] = await ctx.runQuery(api.documents.listDocuments);
-
-    const openai = new OpenAI({
-      apiKey: env.OPENAI_API_KEY!,
-      baseURL: "https://integrate.api.nvidia.com/v1",
+    const namespace = args.projectId ? `project-${args.projectId}` : "global";
+    const { results, text, entries } = await rag.search(ctx, {
+      namespace,
+      query: args.query,
+      limit: args.limit ?? 10,
+      vectorScoreThreshold: 0.3,
     });
 
-    const docContext = docs
-      .map((d, i) => `[${i}] Source: ${d.source}\nContent: ${d.content.slice(0, 500)}`)
-      .join("\n\n");
-
-    const prompt = `You are a compliance document search assistant. Given a user query and a set of documents, return the indices of the most relevant documents (max 5) as a JSON array of numbers.
-
-User query: ${args.query}
-
-Documents:
-${docContext}
-
-Return ONLY a JSON array of indices, e.g. [0, 3, 1]. If no documents are relevant, return [].`;
-
-    const response = await openai.chat.completions.create({
-      model: "nvidia/llama-3.1-405b-instruct",
-      temperature: 0.1,
-      messages: [
-        { role: "system", content: "You return only valid JSON arrays of numbers." },
-        { role: "user", content: prompt },
-      ],
-    });
-
-    const content = response.choices[0].message.content ?? "[]";
-    const match = content.match(/\[[\d,\s]*\]/);
-    const indices: number[] = match ? JSON.parse(match[0]) : [];
-
-    return indices
-      .filter((i) => i >= 0 && i < docs.length)
-      .map((i) => ({
-        source: docs[i].source,
-        content: docs[i].content,
-        score: 1 - indices.indexOf(i) * 0.1,
-      }));
+    return {
+      context: text,
+      results: results.map((r) => ({
+        entryId: r.entryId as unknown as string,
+        score: r.score,
+        content: r.content.map((c) => c.text).join("\n"),
+      })),
+      entries: entries.map((e) => ({
+        entryId: e.entryId as unknown as string,
+        title: e.title,
+        importance: e.importance,
+      })),
+    };
   },
 });
 
-export const searchRegulations = action({
-  args: { query: v.string() },
+export const askDocuments = action({
+  args: {
+    question: v.string(),
+    projectId: v.optional(v.id("projects")),
+  },
   handler: async (ctx, args) => {
-    const regulations: Doc<"regulations">[] = await ctx.runQuery(api.regulations.list);
-
-    const openai = new OpenAI({
-      apiKey: env.OPENAI_API_KEY!,
-      baseURL: "https://integrate.api.nvidia.com/v1",
+    const namespace = args.projectId ? `project-${args.projectId}` : "global";
+    const { text, context } = await rag.generateText(ctx, {
+      search: { namespace, limit: 5, vectorScoreThreshold: 0.3 },
+      prompt: args.question,
+      model: nvidiaChat,
     });
-
-    const regContext = regulations
-      .map((r, i) => `[${i}] Agency: ${r.agency}\nSummary: ${r.summary}\nURL: ${r.sourceUrl}`)
-      .join("\n\n");
-
-    const prompt = `You are a regulatory search assistant. Given a user query and a set of regulations, return the indices of the most relevant regulations (max 5) as a JSON array of numbers.
-
-User query: ${args.query}
-
-Regulations:
-${regContext}
-
-Return ONLY a JSON array of numbers, e.g. [0, 3, 1]. If no regulations are relevant, return [].`;
-
-    const response = await openai.chat.completions.create({
-      model: "nvidia/llama-3.1-405b-instruct",
-      temperature: 0.1,
-      messages: [
-        { role: "system", content: "You return only valid JSON arrays of numbers." },
-        { role: "user", content: prompt },
-      ],
-    });
-
-    const content = response.choices[0].message.content ?? "[]";
-    const match = content.match(/\[[\d,\s]*\]/);
-    const indices: number[] = match ? JSON.parse(match[0]) : [];
-
-    return indices
-      .filter((i) => i >= 0 && i < regulations.length)
-      .map((i) => ({
-        agency: regulations[i].agency,
-        summary: regulations[i].summary,
-        sourceUrl: regulations[i].sourceUrl,
-        crawledAt: regulations[i].crawledAt,
-        score: 1 - indices.indexOf(i) * 0.1,
-      }));
+    return { answer: text, context };
   },
 });
 
-export const generateEmbedding = internalAction({
-  args: { text: v.string() },
+export const deleteDocument = internalAction({
+  args: { entryId: v.string() },
   handler: async (ctx, args) => {
-    const openai = new OpenAI({
-      apiKey: env.OPENAI_API_KEY!,
-      baseURL: "https://integrate.api.nvidia.com/v1",
-    });
-    try {
-      const response = await openai.embeddings.create({
-        model: "nvidia/nv-embedqa-e5-v5",
-        input: args.text,
+    await rag.delete(ctx, { entryId: args.entryId as EntryId });
+    return { success: true };
+  },
+});
+
+export const seedRagDemo = action({
+  args: {},
+  handler: async (ctx) => {
+    const docs = [
+      {
+        title: "Merced Solar — Post-Construction Monitoring Report, 2022",
+        content:
+          "Mitigation measure: Bat acoustic deterrent deployment at Merced Solar site, 2022. " +
+          "The deterrent reduced bat fatalities by 67% compared to pre-installation baseline. " +
+          "Operational from March to November, active during peak migration periods. " +
+          "Recommendation: Extend deployment duration for 2023 monitoring cycle.",
+        importance: 0.8,
+      },
+      {
+        title: "CDFW Comments on Draft EIA, February 2021",
+        content:
+          "Agency response: California Department of Fish and Wildlife noted that the " +
+          "bat monitoring protocol should be expanded to include summer maternity roost " +
+          "sites. The Department recommended a revised statistical model for fatality " +
+          "estimation that accounts for carcass displacement under operational turbines.",
+        importance: 0.7,
+      },
+      {
+        title: "Noise Monitoring Protocol for Wind Facilities, 2020",
+        content:
+          "Standard protocol for measuring turbine noise at wind facilities in California. " +
+          "Measurements taken at 70m from turbine base during operation. Sound pressure " +
+          "levels averaged over 10-minute intervals. Compliance threshold: 45 dBA at " +
+          "project boundary during nighttime hours.",
+        importance: 0.6,
+      },
+    ];
+
+    const results = [];
+    for (const doc of docs) {
+      const r = await rag.add(ctx, {
+        namespace: "global",
+        key: doc.title,
+        text: `${doc.title}\n\n${doc.content}`,
+        title: doc.title,
+        importance: doc.importance,
       });
-      return response.data[0].embedding;
-    } catch (e) {
-      return [];
+      results.push({ entryId: r.entryId as unknown as string, status: r.status });
     }
+    return results;
   },
 });

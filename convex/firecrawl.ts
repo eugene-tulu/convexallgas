@@ -162,7 +162,7 @@ export const scrapeAndPersist = action({
   handler: async (
     ctx,
     args
-  ): Promise<{ id: string; url: string; title: string; summary: string; markdown: string }> => {
+  ): Promise<{ id: string; url: string; title: string; summary: string; markdown: string; ragEntryId: string | null }> => {
     const client = getClient();
     const result = await client.scrape(args.url, {
       formats: ["markdown", "summary"],
@@ -179,12 +179,29 @@ export const scrapeAndPersist = action({
       isNew: true,
     });
 
+    let ragEntryId: string | null = null;
+    try {
+      const { rag } = await import("./rag");
+      const namespace = args.projectId ? `project-${args.projectId}` : "global";
+      const r = await rag.add(ctx, {
+        namespace,
+        key: args.url,
+        text: `${result.metadata?.title ?? args.url}\n\nAgency: ${result.metadata?.ogSiteName ?? "Unknown"}\n\n${result.summary ?? ""}\n\n${result.markdown ?? ""}`,
+        title: result.metadata?.title ?? args.url,
+        importance: 0.7,
+      });
+      ragEntryId = r.entryId as unknown as string;
+    } catch (e) {
+      console.error("Failed to add to RAG:", e);
+    }
+
     return {
       id,
       url: args.url,
       title: result.metadata?.title ?? "",
       summary: result.summary ?? "",
       markdown: result.markdown ?? "",
+      ragEntryId,
     };
   },
 });

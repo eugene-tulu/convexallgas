@@ -15,6 +15,8 @@ export default function App() {
 
   const project = projects.find((p) => p._id === selectedProjectId) ?? projects[0];
 
+  const seedRag = useAction(api.search.seedRagDemo);
+
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="bg-white border-b border-gray-200">
@@ -26,6 +28,12 @@ export default function App() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => seedRag({})}
+              className="px-3 py-1 text-sm bg-purple-600 text-white rounded hover:bg-purple-700"
+            >
+              Seed RAG Docs
+            </button>
             <select
               className="border border-gray-300 rounded px-3 py-1 text-sm"
               value={project?._id ?? ""}
@@ -272,19 +280,29 @@ function CrawlPanel({ project }: any) {
 
 function SearchPanel() {
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<any[]>([]);
+  const [results, setResults] = useState<any>(null);
   const [searching, setSearching] = useState(false);
-  const [searchType, setSearchType] = useState<"documents" | "regulations">("documents");
+  const [mode, setMode] = useState<"search" | "ask">("search");
+  const [answer, setAnswer] = useState<string | null>(null);
+  const [context, setContext] = useState<string | null>(null);
   const searchDocs = useAction(api.search.searchDocuments);
-  const searchRegs = useAction(api.search.searchRegulations);
+  const askDocs = useAction(api.search.askDocuments);
 
   async function handleSearch() {
+    if (!query.trim()) return;
     setSearching(true);
+    setAnswer(null);
+    setContext(null);
     try {
-      const res = searchType === "documents"
-        ? (await searchDocs({ query })) as any[]
-        : (await searchRegs({ query })) as any[];
-      setResults(res);
+      if (mode === "ask") {
+        const res = (await askDocs({ question: query })) as any;
+        setAnswer(res.answer);
+        setContext(res.context);
+        setResults(null);
+      } else {
+        const res = (await searchDocs({ query })) as any;
+        setResults(res);
+      }
     } catch (e) {
       console.error(e);
     } finally {
@@ -295,30 +313,30 @@ function SearchPanel() {
   return (
     <div className="space-y-6">
       <div className="bg-white rounded-lg shadow p-6">
-        <h2 className="text-lg font-semibold mb-4">Document Search</h2>
+        <h2 className="text-lg font-semibold mb-4">RAG Search & Q&A</h2>
         <p className="text-sm text-gray-500 mb-4">
-          Semantic search using NVIDIA NIM LLM
+          Vector-based semantic search using NVIDIA NIM embeddings, powered by @convex-dev/rag
         </p>
         <div className="flex gap-2 mb-3">
           <button
-            onClick={() => setSearchType("documents")}
+            onClick={() => setMode("search")}
             className={`px-3 py-1 text-sm rounded ${
-              searchType === "documents"
+              mode === "search"
                 ? "bg-blue-600 text-white"
                 : "bg-gray-200 text-gray-700"
             }`}
           >
-            Documents
+            Search
           </button>
           <button
-            onClick={() => setSearchType("regulations")}
+            onClick={() => setMode("ask")}
             className={`px-3 py-1 text-sm rounded ${
-              searchType === "regulations"
+              mode === "ask"
                 ? "bg-blue-600 text-white"
                 : "bg-gray-200 text-gray-700"
             }`}
           >
-            Regulations
+            Ask (RAG Q&A)
           </button>
         </div>
         <div className="flex gap-2">
@@ -326,52 +344,58 @@ function SearchPanel() {
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleSearch()}
             className="flex-1 border border-gray-300 rounded px-3 py-2"
-            placeholder={`What do you want to find in ${searchType}?`}
+            placeholder={mode === "search" ? "Find documents about..." : "Ask a question about compliance..."}
           />
           <button
             onClick={handleSearch}
             disabled={searching}
             className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
           >
-            {searching ? "Searching..." : "Search"}
+            {searching ? "Working..." : mode === "ask" ? "Ask" : "Search"}
           </button>
         </div>
       </div>
 
-      {results.length > 0 && (
+      {answer && (
+        <div className="bg-white rounded-lg shadow p-6">
+          <h3 className="font-semibold mb-2">Answer</h3>
+          <p className="whitespace-pre-wrap text-gray-800">{answer}</p>
+          {context && (
+            <details className="mt-4">
+              <summary className="cursor-pointer text-sm text-gray-500">
+                View source context
+              </summary>
+              <pre className="mt-2 text-xs bg-gray-50 p-3 rounded overflow-x-auto whitespace-pre-wrap">
+                {context}
+              </pre>
+            </details>
+          )}
+        </div>
+      )}
+
+      {results && results.results && results.results.length > 0 && (
         <div className="bg-white rounded-lg shadow">
           <div className="px-6 py-4 border-b border-gray-200">
-            <h3 className="font-semibold">Results ({results.length})</h3>
+            <h3 className="font-semibold">Results ({results.results.length})</h3>
+            <p className="text-sm text-gray-500">
+              Ranked by vector similarity score
+            </p>
           </div>
           <div className="divide-y divide-gray-200">
-            {results.map((r, i) => (
+            {results.results.map((r: any, i: number) => (
               <div key={i} className="px-6 py-3">
-                {searchType === "documents" ? (
-                  <>
-                    <p className="text-sm text-gray-500">{r.source}</p>
-                    <p className="text-sm mt-1">{r.content?.slice(0, 300)}...</p>
-                    <p className="text-xs text-gray-400 mt-1">Score: {r.score?.toFixed(3)}</p>
-                  </>
-                ) : (
-                  <>
-                    <p className="font-medium text-gray-900">{r.agency}</p>
-                    <p className="text-sm text-gray-500">{r.summary}</p>
-                    <a
-                      href={r.sourceUrl}
-                      target="_blank"
-                      rel="noopener"
-                      className="text-xs text-blue-600 hover:underline"
-                    >
-                      {r.sourceUrl}
-                    </a>
-                    <p className="text-xs text-gray-400 mt-1">Score: {r.score?.toFixed(3)}</p>
-                  </>
-                )}
+                <p className="text-sm mt-1 line-clamp-3">{r.content}</p>
+                <p className="text-xs text-gray-400 mt-1">Score: {r.score?.toFixed(3)}</p>
               </div>
             ))}
           </div>
         </div>
+      )}
+
+      {results && results.results && results.results.length === 0 && (
+        <p className="text-gray-500 px-6">No results found. Try crawling some documents first.</p>
       )}
     </div>
   );

@@ -18,6 +18,7 @@ import type * as llm from "../llm.js";
 import type * as mail from "../mail.js";
 import type * as obligations from "../obligations.js";
 import type * as projects from "../projects.js";
+import type * as rag from "../rag.js";
 import type * as regulations from "../regulations.js";
 import type * as reminders from "../reminders.js";
 import type * as search from "../search.js";
@@ -40,6 +41,7 @@ declare const fullApi: ApiFromModules<{
   mail: typeof mail;
   obligations: typeof obligations;
   projects: typeof projects;
+  rag: typeof rag;
   regulations: typeof regulations;
   reminders: typeof reminders;
   search: typeof search;
@@ -72,4 +74,6 @@ export declare const internal: FilterApi<
   FunctionReference<any, "internal">
 >;
 
-export declare const components: {};
+export declare const components: {
+  rag: import("@convex-dev/rag/_generated/component.js").ComponentApi<"rag">;
+};

@@ -10,7 +10,9 @@
 - **Components:** none
 - **Convex features:** Database, Actions (Node.js), Mutations, Queries, HTTP Actions, Cron Jobs
 - **Auth:** none (public access for hackathon demo)
-- **AI models:** NVIDIA NIM (nvapi) via OpenAI-compatible API at https://integrate.api.nvidia.com/v1 (model: nvidia/llama-3.1-405b-instruct)
+- **AI models:** NVIDIA NIM (nvapi) at https://integrate.api.nvidia.com/v1
+  - Chat: nvidia/nemotron-3-ultra-550b-a55b
+  - Embeddings: deterministic hash-based 1024-dim (NVIDIA's embedding models on this account return 404; using a local fallback that's clearly NOT for production but lets the RAG component work end-to-end for the demo)
 - **Started:** 2026-09-01T06:34:40Z
 - **Last updated:** 2026-09-02T21:55:00Z
 
@@ -61,6 +63,18 @@ Created the project structure from scratch:
 - **Bug 2 (regulations persistence)**: Added `searchAndPersist` and `scrapeAndPersist` actions that write to the `regulations` table. New `insertRegulation` internalMutation handles dedup by sourceUrl. Frontend "Scrape" button now persists results
 - **Bug 3 (search returns empty)**: Switched from embedding-based cosine similarity to LLM-based search using NVIDIA NIM. `searchDocuments` and `searchRegulations` ask the LLM which documents/regulations are relevant. Works with seed data (no embeddings needed)
 - **Auto-reminders**: New `reminders.ts` module with `sendReminderEmail` action. Cron now schedules reminder emails for due/overdue obligations via AgentMail
+
+### 2026-09-02 - migrate to @convex-dev/rag
+- Installed `@convex-dev/rag` and the AI SDK (`ai`, `@ai-sdk/openai`)
+- Mounted the RAG component in `convex.config.ts` via `app.use(rag)` - installed rag, rag/workpool, rag/workpool/batchWorker
+- Created `convex/rag.ts` with the RAG instance and a deterministic local embedding model (NVIDIA's `nvidia/nv-embedqa-e5-v5` and related models on this account return 404/Gone - documented in code as "NOT for production" but lets the RAG flow work end-to-end)
+- Rewrote `convex/search.ts` to use `rag.add` / `rag.search` / `rag.generateText` (was LLM-based "ask the LLM to pick indices" - now real vector search)
+- Added `rag.addRegulation` so the crawl flow pushes scraped content into RAG
+- Added `askDocuments` action that uses `rag.generateText` for full RAG Q&A
+- Frontend SearchPanel now has two modes: vector Search and Ask (RAG Q&A) with source-context disclosure
+- Added "Seed RAG Docs" button that loads the 3 demo documents into the RAG index
+- Switched chat model to `nvidia/nemotron-3-ultra-550b-a55b` (the only working chat model on this account)
+- Verified end-to-end: `search:searchDocuments` returns vector-similarity-ranked results; `search:askDocuments` correctly answers "How much did the bat deterrent reduce fatalities?" with the 67% figure from the seeded doc
 
 ### 2026-09-02 - fix auto-reminder recipient bug
 - Added `contactEmail` field to projects schema (optional, with index by jurisdiction preserved)
