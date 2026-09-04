@@ -153,25 +153,41 @@ export const sendConfirmAndRejects = internalMutation({
       .query("responses")
       .withIndex("by_shiftId", (q) => q.eq("shiftId", args.shiftId))
       .collect();
+    // Batch-load every worker we'll need in one query, so the dispatch action
+    // doesn't have to re-fetch them one at a time.
+    const workerIds = Array.from(
+      new Set(
+        responses
+          .filter((r) => r.source === "internal" && !!r.workerId)
+          .map((r) => r.workerId as NonNullable<typeof r.workerId>)
+      )
+    );
+    const workers = workerIds.length
+      ? await ctx.db
+          .query("workers")
+          .filter((q) => q.or(...workerIds.map((id) => q.eq(q.field("_id"), id))))
+          .collect()
+      : [];
+    const workerById = new Map(workers.map((w) => [w._id, w]));
     for (const r of responses) {
       if (r.source !== "internal" || !r.workerId) continue;
-      if (r._id === args.winningResponseId) {
-        await ctx.scheduler.runAfter(0, internal.repliesBridge.sendOneEmail, {
-          responseId: r._id,
-          kind: "confirm",
-        });
-      } else {
-        await ctx.scheduler.runAfter(0, internal.repliesBridge.sendOneEmail, {
-          responseId: r._id,
-          kind: "reject",
-        });
-      }
+      const w = workerById.get(r.workerId);
+      if (!w) continue;
+      await ctx.scheduler.runAfter(0, internal.repliesBridge.sendOneEmail, {
+        responseId: r._id,
+        workerContact: w.contact,
+        kind: r._id === args.winningResponseId ? "confirm" : "reject",
+      });
     }
   },
 });
 
 export const sendOneEmail = internalMutation({
-  args: { responseId: v.id("responses"), kind: v.union(v.literal("confirm"), v.literal("reject")) },
+  args: {
+    responseId: v.id("responses"),
+    workerContact: v.string(),
+    kind: v.union(v.literal("confirm"), v.literal("reject")),
+  },
   handler: async (ctx, args) => {
     const r = await ctx.db.get(args.responseId);
     if (!r) return;
@@ -181,6 +197,7 @@ export const sendOneEmail = internalMutation({
     if (!business) return;
     await ctx.scheduler.runAfter(0, internal.repliesActions.dispatchOneEmail, {
       responseId: r._id,
+      workerContact: args.workerContact,
       businessInboxId: business.inboxId,
       businessName: business.name,
       role: shift.role,
@@ -199,6 +216,8 @@ export const getResponse = internalQuery({
   },
 });
 
+// Kept for back-compat (dispatchOneEmail no longer needs it, but other callers
+// may). Safe to leave; just no longer on the hot path.
 export const getWorkerDoc = internalQuery({
   args: { id: v.id("workers") },
   handler: async (ctx, args) => {

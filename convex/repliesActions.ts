@@ -2,12 +2,11 @@
 import { v } from "convex/values";
 import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { Doc } from "./_generated/dataModel";
-// actions only - kept separate from mutations/queries in repliesBridge.ts so the "use node" directive is safe
 
 export const dispatchOneEmail = internalAction({
   args: {
     responseId: v.id("responses"),
+    workerContact: v.string(),
     businessInboxId: v.string(),
     businessName: v.string(),
     role: v.string(),
@@ -17,31 +16,24 @@ export const dispatchOneEmail = internalAction({
     kind: v.union(v.literal("confirm"), v.literal("reject")),
   },
   handler: async (ctx, args) => {
-    const r: Doc<"responses"> | null = await ctx.runQuery(
-      internal.repliesBridge.getResponse,
-      { id: args.responseId }
-    );
-    if (!r || !r.workerId) return;
-    const w: Doc<"workers"> | null = await ctx.runQuery(
-      internal.repliesBridge.getWorkerDoc,
-      { id: r.workerId }
-    );
-    if (!w) return;
+    // `workerContact`, `businessInboxId`, `role`, `startTime`, etc. are all
+    // resolved by the caller (`sendOneEmail`) so this action does zero DB
+    // reads — straight to the LLM and the mail send.
     const text =
       args.kind === "confirm"
-        ? ((await ctx.runAction(internal.llmTasks.draftConfirmEmail, {
+        ? await ctx.runAction(internal.llmTasks.draftConfirmEmail, {
             role: args.role,
             startTime: args.startTime,
             businessName: args.businessName,
-          })) as string)
-        : ((await ctx.runAction(internal.llmTasks.draftRejectEmail, {
+          })
+        : await ctx.runAction(internal.llmTasks.draftRejectEmail, {
             role: args.role,
             businessName: args.businessName,
-          })) as string);
+          });
     const subject = args.kind === "confirm" ? "You're on the shift" : "Shift's covered - thanks";
     await ctx.runAction(internal.mailBridge.sendEmailAction, {
       inboxId: args.businessInboxId,
-      to: w.contact,
+      to: args.workerContact,
       subject,
       text,
     });
@@ -49,7 +41,7 @@ export const dispatchOneEmail = internalAction({
       table: "responses",
       rowId: args.responseId,
       action: args.kind === "confirm" ? "confirm_sent" : "reject_sent",
-      summary: `${args.kind} email sent to ${w.contact} ($${args.displayRate}${args.displayRateLabel})`,
+      summary: `${args.kind} email sent to ${args.workerContact} ($${args.displayRate}${args.displayRateLabel})`,
     });
   },
 });

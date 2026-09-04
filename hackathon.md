@@ -234,3 +234,9 @@ Applied all critical + high + most medium issues from a code review pass. Deploy
 - LLM rate limiting (would be straightforward via `@convex-dev/rate-limiter` for a real product).
 - Per-recipient single-email subtransactions in `sendConfirmAndRejects` (acceptable for small shortlists; if it becomes a bottleneck, batch via the AgentMail bulk-send API).
 - README (hackathon.md is the documentation; an actual product would have both).
+
+### 2026-09-04 - follow-up reviewer pass
+Follow-up reviewer pass picked up two minor items. Addressed the real one; clarified the false positive.
+
+- **`extractBusinessProfile` is wired** — was flagged as dead code, but `businesses.createBusiness` already runs `firecrawl.scrape` + `extractBusinessProfile` when a `sourceUrl` is provided (lines 37–53 of `convex/businesses.ts`). Form values are the source of truth and the LLM only fills missing fields, so the manager still reviews before saving. The follow-up reviewer was looking at an older snapshot.
+- **`dispatchOneEmail` redundant DB fetches fixed** — `sendOneEmail` now batch-loads every worker's contact via a single `db.query(...).filter(q.or(...))` keyed on the shift's response workerIds, then passes the contact string through to `dispatchOneEmail`. The dispatch action no longer re-fetches the response, shift, or worker — it goes straight to the LLM and `mail.sendEmail`. Saves 2 DB reads per confirmation/rejection email. Re-verified end-to-end: 1 `shift_confirmed` + 1 `confirm_sent` + 2 `reject_sent` for a 3-reply shift.
