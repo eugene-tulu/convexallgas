@@ -1,85 +1,105 @@
-import { mutation } from "./_generated/server";
-import { internal } from "./_generated/api";
+"use node";
+import { v } from "convex/values";
+import { internalAction } from "./_generated/server";
+import { internal, api } from "./_generated/api";
 
-export const seed = mutation({
+export const seedDemo = internalAction({
   args: {},
   handler: async (ctx) => {
-    const existing = await ctx.db
-      .query("projects")
-      .withIndex("by_jurisdiction", (q) => q.eq("jurisdiction", "California"))
-      .filter((q) => q.eq(q.field("status"), "active"))
-      .first();
-
-    if (existing) {
-      return { alreadySeeded: true, projectId: existing._id };
+    const existingBiz = await ctx.runQuery(internal.seedBridge.findBusinessByName, {
+      name: "Merced Coffee Co.",
+    });
+    if (existingBiz) {
+      return {
+        alreadySeeded: true,
+        businessId: existingBiz,
+      };
     }
 
-    const now = Date.now();
-
-    const projectId = await ctx.db.insert("projects", {
-      name: "Merced Solar Wind Farm EIA",
-      jurisdiction: "California",
-      projectType: "Wind",
-      status: "active",
-      contactEmail: "compliance-officer@merced-solar.example.com",
+    let inbox: { inboxId: string; email: string };
+    try {
+      inbox = (await ctx.runAction(internal.mailBridge.createInboxAction, {
+        username: `merced-coffee-${Date.now().toString(36).slice(-5)}`,
+        displayName: "Merced Coffee Co.",
+      })) as { inboxId: string; email: string };
+    } catch (e) {
+      // The AgentMail key may not have inbox_create permission. Fall back to an
+      // existing inbox the key can read.
+      const list = (await ctx.runAction(api.mail.listInboxes, {})) as Array<{
+        inboxId: string;
+        email: string;
+      }>;
+      if (!list.length) throw e;
+      inbox = list[0];
+    }
+    const businessId = await ctx.runMutation(internal.seedBridge.insertBusiness, {
+      name: "Merced Coffee Co.",
+      category: "cafe",
+      hoursJson: JSON.stringify({
+        mon: "6-17",
+        tue: "6-17",
+        wed: "6-17",
+        thu: "6-17",
+        fri: "6-19",
+        sat: "7-19",
+        sun: "7-15",
+      }),
+      sizeSignal: "small (3-8 staff)",
+      location: "Merced, CA",
+      sourceUrl: "https://example.com/merced-coffee",
+      inboxId: inbox.inboxId,
+      inboxEmail: inbox.email,
+    });
+    await ctx.runMutation(internal.eventsLog.logEvent, {
+      table: "businesses",
+      rowId: businessId,
+      action: "seed_business",
+      summary: `Seeded demo business Merced Coffee Co. with inbox ${inbox.email}`,
     });
 
-    await ctx.db.insert("obligations", {
-      projectId,
-      commitmentText: "Submit quarterly groundwater monitoring report",
-      deadline: now + 14 * 24 * 60 * 60 * 1000,
-      recurrence: "90d",
-      nextCheckAt: now + 7 * 24 * 60 * 60 * 1000,
-      status: "pending",
+    const demoWorkers = [
+      { name: "Avery Park", contact: "avery.park+e2e@agentmail.to", roles: ["barista", "shift lead"], reliability: 0.85 },
+      { name: "Jordan Lee", contact: "jordan.lee+e2e@agentmail.to", roles: ["barista"], reliability: 0.7 },
+      { name: "Sam Rivera", contact: "sam.rivera+e2e@agentmail.to", roles: ["barista", "cashier"], reliability: 0.6 },
+    ];
+    const workerIds: string[] = [];
+    for (const w of demoWorkers) {
+      const id = await ctx.runMutation(internal.seedBridge.insertWorker, {
+        businessId,
+        name: w.name,
+        contact: w.contact,
+        roles: w.roles,
+        location: "Merced, CA",
+        consent: true,
+        reliabilityScore: w.reliability,
+      });
+      workerIds.push(id);
+    }
+
+    const declinerId = await ctx.runMutation(internal.seedBridge.insertWorker, {
+      businessId,
+      name: "Casey Tan",
+      contact: "casey.tan+e2e@agentmail.to",
+      roles: ["barista"],
+      location: "Merced, CA",
+      consent: false,
+      reliabilityScore: 0.4,
     });
 
-    await ctx.db.insert("obligations", {
-      projectId,
-      commitmentText: "File annual avian/bat impact assessment",
-      deadline: now + 30 * 24 * 60 * 60 * 1000,
-      recurrence: "365d",
-      nextCheckAt: now + 23 * 24 * 60 * 60 * 1000,
-      status: "pending",
+    await ctx.runMutation(internal.eventsLog.logEvent, {
+      table: "workers",
+      rowId: declinerId,
+      action: "seed_worker",
+      summary: "Seeded decliner worker (consent=false) for consent-filter test",
     });
 
-    await ctx.db.insert("documents", {
-      projectId,
-      source: "Merced Solar — Post-Construction Monitoring Report, 2022",
-      content:
-        "Mitigation measure: Bat acoustic deterrent deployment at Merced Solar site, 2022. " +
-        "The deterrent reduced bat fatalities by 67% compared to pre-installation baseline. " +
-        "Operational from March to November, active during peak migration periods. " +
-        "Recommendation: Extend deployment duration for 2023 monitoring cycle.",
-    });
+    return { businessId, inboxEmail: inbox.email, workerIds, declinerId };
+  },
+});
 
-    await ctx.db.insert("documents", {
-      projectId,
-      source: "CDFW Comments on Draft EIA, February 2021",
-      content:
-        "Agency response: California Department of Fish and Wildlife noted that the " +
-        "bat monitoring protocol should be expanded to include summer maternity roost " +
-        "sites. The Department recommended a revised statistical model for fatality " +
-        "estimation that accounts for carcass displacement under operational turbines.",
-    });
-
-    await ctx.db.insert("documents", {
-      projectId,
-      source: "Noise Monitoring Protocol for Wind Facilities, 2020",
-      content:
-        "Standard protocol for measuring turbine noise at wind facilities in California. " +
-        "Measurements taken at 70m from turbine base during operation. Sound pressure " +
-        "levels averaged over 10-minute intervals. Compliance threshold: 45 dBA at " +
-        "project boundary during nighttime hours.",
-    });
-
-    await ctx.runMutation(internal.eventLog.logEvent, {
-      table: "seed",
-      rowId: "demo",
-      action: "initialized",
-      summary:
-        "Seeded demo project 'Merced Solar Wind Farm EIA' with 2 obligations, 3 documents",
-    });
-
-    return { alreadySeeded: false, projectId };
+export const listSeed = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.runQuery(internal.seedBridge.listSeed, {});
   },
 });

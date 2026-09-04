@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { query, internalQuery } from "./_generated/server";
+import { query } from "./_generated/server";
 
 export const recent = query({
   args: { limit: v.optional(v.number()) },
@@ -8,35 +8,18 @@ export const recent = query({
       .query("events")
       .withIndex("by_timestamp")
       .order("desc")
-      .take(args.limit ?? 50);
+      .take(args.limit ?? 100);
   },
 });
 
-export const forObligation = query({
-  args: { obligationId: v.string() },
+export const forShift = query({
+  args: { shiftId: v.string() },
   handler: async (ctx, args) => {
-    return await ctx.db
+    const all = await ctx.db
       .query("events")
-      .withIndex("by_timestamp")
+      .withIndex("by_table_rowId", (q) => q.eq("table", "shifts").eq("rowId", args.shiftId))
       .order("desc")
-      .filter((q) =>
-        q.and(
-          q.eq(q.field("rowId"), args.obligationId),
-          q.eq(q.field("table"), "obligations")
-        )
-      )
-      .take(20);
-  },
-});
-
-export const byAction = query({
-  args: { action: v.string(), limit: v.optional(v.number()) },
-  handler: async (ctx, args) => {
-    return await ctx.db
-      .query("events")
-      .withIndex("by_timestamp")
-      .order("desc")
-      .filter((q) => q.eq(q.field("action"), args.action))
-      .take(args.limit ?? 50);
+      .take(50);
+    return all;
   },
 });

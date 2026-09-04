@@ -1,736 +1,455 @@
-import React, { useState } from "react";
-import { useQuery, useAction, useMutation } from "convex/react";
+import React, { useEffect, useMemo, useState } from "react";
+import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "../convex/_generated/api";
 import { Id } from "../convex/_generated/dataModel";
 
-type Tab = "dashboard" | "crawl" | "search" | "inbox" | "reminders" | "activity";
-
 export default function App() {
-  const [activeTab, setActiveTab] = useState<Tab>("dashboard");
-  const [selectedProjectId, setSelectedProjectId] = useState<Id<"projects"> | null>(null);
+  const businesses = useQuery(api.businessesQueries.list) ?? [];
+  const [businessId, setBusinessId] = useState<Id<"businesses"> | null>(null);
+  const [tab, setTab] = useState<"shifts" | "workers" | "activity" | "onboard">("shifts");
 
-  const projects = useQuery(api.projects.list) ?? [];
-  const regulations = useQuery(api.regulations.list) ?? [];
-  const obligations = useQuery(api.obligations.listObligations) ?? [];
+  useEffect(() => {
+    if (!businessId && businesses.length > 0) {
+      setBusinessId(businesses[0]._id);
+    }
+  }, [businesses, businessId]);
 
-  const project = projects.find((p) => p._id === selectedProjectId) ?? projects[0];
-
-  const seedRag = useAction(api.search.seedRagDemo);
-  const seedDemo = useMutation(api.seed.seed);
+  const biz = useMemo(() => businesses.find((b) => b._id === businessId) ?? null, [businesses, businessId]);
+  const runSeed = useAction(api.seedAction.runSeed);
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+    <div style={{ minHeight: "100vh" }}>
+      <header style={{ background: "white", borderBottom: "1px solid #e5e7eb" }}>
+        <div style={{ maxWidth: 1100, margin: "0 auto", padding: "16px 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">EIA Compliance Copilot</h1>
-            <p className="text-sm text-gray-500">
-              AI-powered environmental impact assessment compliance tracking
+            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>Proxy</h1>
+            <p style={{ margin: 0, color: "#6b7280", fontSize: 13 }}>
+              Email-first shift call-outs. AI ranks, manager approves, system covers the rest.
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => seedDemo({})}
-              className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
-            >
-              Seed Demo Data
-            </button>
-            <button
-              onClick={() => seedRag({})}
-              className="px-3 py-1 text-sm bg-purple-600 text-white rounded hover:bg-purple-700"
-            >
-              Seed RAG Docs
-            </button>
-            <select
-              className="border border-gray-300 rounded px-3 py-1 text-sm"
-              value={project?._id ?? ""}
-              onChange={(e) => setSelectedProjectId(e.target.value as Id<"projects">)}
-            >
-              {projects.map((p) => (
-                <option key={p._id} value={p._id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            {businesses.length === 0 && (
+              <button
+                onClick={() => runSeed({})}
+                style={{ padding: "6px 12px", background: "#0f172a", color: "white", border: "none", borderRadius: 6, fontSize: 13, cursor: "pointer" }}
+              >
+                Seed demo data
+              </button>
+            )}
+            {businesses.length > 0 && (
+              <select
+                value={businessId ?? ""}
+                onChange={(e) => setBusinessId(e.target.value as Id<"businesses">)}
+                style={{ padding: "6px 10px", border: "1px solid #d1d5db", borderRadius: 6, fontSize: 13 }}
+              >
+                {businesses.map((b) => (
+                  <option key={b._id} value={b._id}>{b.name}</option>
+                ))}
+              </select>
+            )}
           </div>
         </div>
-        <nav className="max-w-7xl mx-auto px-6 flex gap-1">
-          {(["dashboard", "crawl", "search", "inbox", "reminders", "activity"] as Tab[]).map((tab) => (
+        <nav style={{ maxWidth: 1100, margin: "0 auto", padding: "0 24px", display: "flex", gap: 4 }}>
+          {(["shifts", "workers", "onboard", "activity"] as const).map((t) => (
             <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`px-4 py-2 text-sm font-medium border-b-2 ${
-                activeTab === tab
-                  ? "border-blue-600 text-blue-600"
-                  : "border-transparent text-gray-500 hover:text-gray-700"
-              }`}
+              key={t}
+              onClick={() => setTab(t)}
+              style={{
+                padding: "10px 14px",
+                fontSize: 13,
+                fontWeight: 500,
+                background: "transparent",
+                border: "none",
+                borderBottom: `2px solid ${tab === t ? "#0f172a" : "transparent"}`,
+                color: tab === t ? "#0f172a" : "#6b7280",
+                cursor: "pointer",
+              }}
             >
-              {tab.charAt(0).toUpperCase() + tab.slice(1)}
+              {t === "shifts" ? "Shifts" : t === "workers" ? "Workers" : t === "onboard" ? "Onboard business" : "Activity"}
             </button>
           ))}
         </nav>
       </header>
 
-      <main className="max-w-7xl mx-auto px-6 py-8">
-        {activeTab === "dashboard" && (
-          <Dashboard
-            projects={projects}
-            regulations={regulations}
-            obligations={obligations}
-            projectId={project?._id}
-          />
+      <main style={{ maxWidth: 1100, margin: "0 auto", padding: "24px" }}>
+        {!biz && tab !== "onboard" && (
+          <div style={{ background: "white", borderRadius: 8, padding: 32, textAlign: "center", color: "#6b7280" }}>
+            <p>No business yet. Click <strong>Seed demo data</strong> for Merced Coffee Co., or use the Onboard tab to add one.</p>
+          </div>
         )}
-        {activeTab === "crawl" && <CrawlPanel project={project} />}
-        {activeTab === "search" && <SearchPanel />}
-        {activeTab === "inbox" && <InboxPanel />}
-        {activeTab === "reminders" && <RemindersPanel project={project} />}
-        {activeTab === "activity" && <ActivityPanel />}
+        {tab === "shifts" && biz && <ShiftsTab businessId={biz._id} />}
+        {tab === "workers" && biz && <WorkersTab businessId={biz._id} />}
+        {tab === "onboard" && <OnboardTab />}
+        {tab === "activity" && <ActivityTab />}
       </main>
     </div>
   );
 }
 
-function Dashboard({ projects, regulations, obligations, projectId }: any) {
-  const projectObligations = projectId
-    ? obligations.filter((o: any) => o.projectId === projectId)
-    : obligations;
-  const overdue = projectObligations.filter((o: any) => o.status === "overdue");
-  const pending = projectObligations.filter((o: any) => o.status === "pending");
+function ShiftsTab({ businessId }: { businessId: Id<"businesses"> }) {
+  const shifts = useQuery(api.shifts.list, { businessId }) ?? [];
+  const workers = useQuery(api.workers.list, { businessId }) ?? [];
+  const postShift = useMutation(api.shifts.postShift);
+  const rebroadcast = useMutation(api.shifts.rebroadcastShift);
+  const [creating, setCreating] = useState(false);
 
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Stat label="Projects" value={projects.length} color="blue" />
-        <Stat label="Regulations" value={regulations.length} color="green" />
-        <Stat
-          label="Overdue"
-          value={overdue.length}
-          color="red"
-          highlight={overdue.length > 0}
-        />
-        <Stat label="Pending" value={pending.length} color="yellow" />
-      </div>
-
-      <div className="bg-white rounded-lg shadow">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h2 className="text-lg font-semibold">Obligations</h2>
-        </div>
-        <div className="divide-y divide-gray-200">
-          {projectObligations.length === 0 ? (
-            <div className="px-6 py-6 text-gray-500">
-              <p className="mb-2">No compliance obligations for this project yet.</p>
-              <p className="text-sm">
-                To populate, run the seed action from the Convex dashboard
-                (function <code className="bg-gray-100 px-1 rounded">api.seed.seed</code>)
-                or click "Seed Demo Data" in the header above.
-              </p>
-            </div>
-          ) : (
-            projectObligations.map((ob: any) => (
-              <ObligationRow key={ob._id} obligation={ob} />
-            ))
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ObligationRow({ obligation }: any) {
-  const markComplete = useMutation(api.obligations.markObligationCompleted);
-  const snooze = useMutation(api.obligations.snoozeObligation);
-  const isOverdue = obligation.status === "overdue";
-  const daysUntil = Math.ceil((obligation.deadline - Date.now()) / (1000 * 60 * 60 * 24));
-  const history = useQuery(api.events.forObligation, { obligationId: obligation._id }) ?? [];
-  const lastAction = history[0];
-  const lastSourceLabel = lastAction
-    ? lastAction.action.includes("reply")
-      ? "via email"
-      : lastAction.action === "completed"
-      ? "via dashboard"
-      : lastAction.action === "snoozed"
-      ? "via dashboard"
-      : ""
-    : "";
-
-  return (
-    <div className="px-6 py-4 flex items-center justify-between">
-      <div className="flex-1">
-        <p className="font-medium text-gray-900">{obligation.commitmentText}</p>
-        <p className="text-sm text-gray-500">
-          Deadline: {new Date(obligation.deadline).toLocaleDateString()} (
-          {daysUntil > 0 ? `${daysUntil}d left` : `${Math.abs(daysUntil)}d ago`})
-          {lastSourceLabel && (
-            <span className="ml-2 inline-block px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">
-              last action: {lastSourceLabel}
-            </span>
-          )}
-        </p>
-      </div>
-      <div className="flex items-center gap-2">
-        <span
-          className={`px-2 py-1 text-xs rounded ${
-            isOverdue
-              ? "bg-red-100 text-red-800"
-              : obligation.status === "completed"
-              ? "bg-green-100 text-green-800"
-              : "bg-yellow-100 text-yellow-800"
-          }`}
-        >
-          {obligation.status}
-        </span>
-        {obligation.status !== "completed" && (
-          <>
-            <button
-              onClick={() => markComplete({ id: obligation._id })}
-              className="px-3 py-1 text-sm bg-green-600 text-white rounded hover:bg-green-700"
-            >
-              Complete
-            </button>
-            <button
-              onClick={() => snooze({ id: obligation._id, snoozeMs: 24 * 60 * 60 * 1000 })}
-              className="px-3 py-1 text-sm bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
-            >
-              Snooze 1d
-            </button>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function Stat({ label, value, color, highlight }: any) {
-  const colors: Record<string, string> = {
-    blue: "bg-blue-50 text-blue-700",
-    green: "bg-green-50 text-green-700",
-    red: "bg-red-50 text-red-700",
-    yellow: "bg-yellow-50 text-yellow-700",
-  };
-  return (
-    <div
-      className={`p-4 rounded-lg ${colors[color]} ${
-        highlight ? "ring-2 ring-red-400" : ""
-      }`}
-    >
-      <p className="text-sm">{label}</p>
-      <p className="text-3xl font-bold">{value}</p>
-    </div>
-  );
-}
-
-function CrawlPanel({ project }: any) {
-  const [query, setQuery] = useState("California wind farm environmental compliance");
-  const [results, setResults] = useState<any[]>([]);
-  const [scraping, setScraping] = useState(false);
-  const search = useAction(api.firecrawl.searchAndPersist);
-  const scrape = useAction(api.firecrawl.scrapeAndPersist);
-  const summarize = useAction(api.llm.runLlmTask);
-
-  async function handleSearch() {
-    const res = (await search({
-      query,
-      limit: 10,
-      projectId: project?._id,
-    })) as any;
-    setResults(res.results || []);
-  }
-
-  async function handleScrape(url: string) {
-    setScraping(true);
-    try {
-      await scrape({ url, projectId: project?._id });
-    } catch (e) {
-      console.error(`Failed to scrape ${url}`, e);
-    } finally {
-      setScraping(false);
-    }
-  }
-
-  return (
-    <div className="space-y-6">
-      <div className="bg-white rounded-lg shadow p-6">
-        <h2 className="text-lg font-semibold mb-4">Crawl Regulatory Sources</h2>
-        <p className="text-sm text-gray-500 mb-4">
-          Search and scrape regulatory content for {project?.name ?? "your project"}
-        </p>
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            className="flex-1 border border-gray-300 rounded px-3 py-2"
-            placeholder="e.g., California wind farm environmental compliance"
-          />
-          <button
-            onClick={handleSearch}
-            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-          >
-            Search
-          </button>
-        </div>
-      </div>
-
-      {results.length > 0 && (
-        <div className="bg-white rounded-lg shadow">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h3 className="font-semibold">Search Results ({results.length})</h3>
-            <p className="text-sm text-gray-500">
-              Click "Scrape" to fetch full content and save to regulations database
-            </p>
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 360px", gap: 24 }}>
+      <div>
+        <h2 style={{ margin: "0 0 12px", fontSize: 16 }}>Active shifts</h2>
+        {shifts.length === 0 ? (
+          <div style={{ background: "white", borderRadius: 8, padding: 24, color: "#6b7280" }}>
+            No shifts yet. Post one on the right to start a broadcast.
           </div>
-          <div className="divide-y divide-gray-200">
-            {results.map((r, i) => (
-              <div key={i} className="px-6 py-3 flex items-center justify-between">
-                <div className="flex-1">
-                  <a
-                    href={r.url}
-                    target="_blank"
-                    rel="noopener"
-                    className="text-blue-600 font-medium hover:underline"
-                  >
-                    {r.title}
-                  </a>
-                  <p className="text-sm text-gray-500">{r.description}</p>
-                </div>
-                <button
-                  onClick={() => handleScrape(r.url)}
-                  disabled={scraping}
-                  className="ml-2 px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-700 disabled:opacity-50"
-                >
-                  {scraping ? "..." : "Scrape"}
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function SearchPanel() {
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState<any>(null);
-  const [searching, setSearching] = useState(false);
-  const [mode, setMode] = useState<"search" | "ask">("search");
-  const [answer, setAnswer] = useState<string | null>(null);
-  const [context, setContext] = useState<string | null>(null);
-  const searchDocs = useAction(api.search.searchDocuments);
-  const askDocs = useAction(api.search.askDocuments);
-
-  async function handleSearch() {
-    if (!query.trim()) return;
-    setSearching(true);
-    setAnswer(null);
-    setContext(null);
-    try {
-      if (mode === "ask") {
-        const res = (await askDocs({ question: query })) as any;
-        setAnswer(res.answer);
-        setContext(res.context);
-        setResults(null);
-      } else {
-        const res = (await searchDocs({ query })) as any;
-        setResults(res);
-      }
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setSearching(false);
-    }
-  }
-
-  return (
-    <div className="space-y-6">
-      <div className="bg-white rounded-lg shadow p-6">
-        <h2 className="text-lg font-semibold mb-4">RAG Search & Q&A</h2>
-        <p className="text-sm text-gray-500 mb-4">
-          Vector-based semantic search using NVIDIA NIM embeddings, powered by @convex-dev/rag
-        </p>
-        <div className="flex gap-2 mb-3">
-          <button
-            onClick={() => setMode("search")}
-            className={`px-3 py-1 text-sm rounded ${
-              mode === "search"
-                ? "bg-blue-600 text-white"
-                : "bg-gray-200 text-gray-700"
-            }`}
-          >
-            Search
-          </button>
-          <button
-            onClick={() => setMode("ask")}
-            className={`px-3 py-1 text-sm rounded ${
-              mode === "ask"
-                ? "bg-blue-600 text-white"
-                : "bg-gray-200 text-gray-700"
-            }`}
-          >
-            Ask (RAG Q&A)
-          </button>
-        </div>
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-            className="flex-1 border border-gray-300 rounded px-3 py-2"
-            placeholder={mode === "search" ? "Find documents about..." : "Ask a question about compliance..."}
-          />
-          <button
-            onClick={handleSearch}
-            disabled={searching}
-            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-          >
-            {searching ? "Working..." : mode === "ask" ? "Ask" : "Search"}
-          </button>
-        </div>
-      </div>
-
-      {answer && (
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="font-semibold mb-2">Answer</h3>
-          <p className="whitespace-pre-wrap text-gray-800">{answer}</p>
-          {context && (
-            <details className="mt-4">
-              <summary className="cursor-pointer text-sm text-gray-500">
-                View source context
-              </summary>
-              <pre className="mt-2 text-xs bg-gray-50 p-3 rounded overflow-x-auto whitespace-pre-wrap">
-                {context}
-              </pre>
-            </details>
-          )}
-        </div>
-      )}
-
-      {results && results.results && results.results.length > 0 && (
-        <div className="bg-white rounded-lg shadow">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h3 className="font-semibold">Results ({results.results.length})</h3>
-            <p className="text-sm text-gray-500">
-              Ranked by vector similarity score
-            </p>
-          </div>
-          <div className="divide-y divide-gray-200">
-            {results.results.map((r: any, i: number) => (
-              <div key={i} className="px-6 py-3">
-                <p className="text-sm mt-1 line-clamp-3">{r.content}</p>
-                <p className="text-xs text-gray-400 mt-1">Score: {r.score?.toFixed(3)}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {results && results.results && results.results.length === 0 && (
-        <p className="text-gray-500 px-6">No results found. Try crawling some documents first.</p>
-      )}
-    </div>
-  );
-}
-
-function InboxPanel() {
-  const [inboxes, setInboxes] = useState<any[]>([]);
-  const [selectedInbox, setSelectedInbox] = useState<string | null>(null);
-  const [messages, setMessages] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
-  const listInboxes = useAction(api.mail.listInboxes);
-  const listMessages = useAction(api.mail.listMessages);
-  const createInbox = useAction(api.mail.getOrCreateInbox);
-
-  React.useEffect(() => {
-    loadInboxes();
-  }, []);
-
-  React.useEffect(() => {
-    if (selectedInbox) loadMessages();
-  }, [selectedInbox]);
-
-  async function loadInboxes() {
-    const res = (await listInboxes({})) as any[];
-    setInboxes(res);
-    if (res.length > 0 && !selectedInbox) setSelectedInbox(res[0].inboxId);
-  }
-
-  async function loadMessages() {
-    setLoading(true);
-    try {
-      const res = (await listMessages({ inboxId: selectedInbox!, limit: 20 })) as any[];
-      setMessages(res);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleCreateInbox() {
-    const inbox = (await createInbox({
-      username: `compliance-${Date.now()}`,
-      displayName: "Compliance Inbox",
-    })) as any;
-    setInboxes([...inboxes, inbox]);
-    setSelectedInbox(inbox.inboxId);
-  }
-
-  return (
-    <div className="space-y-6">
-      <div className="bg-white rounded-lg shadow p-6">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-lg font-semibold">Inbox</h2>
-          <div className="flex gap-2">
-            <button
-              onClick={() => { loadInboxes(); if (selectedInbox) loadMessages(); }}
-              className="px-3 py-1 text-sm bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
-            >
-              Refresh
-            </button>
-            <button
-              onClick={handleCreateInbox}
-              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-            >
-              Create Inbox
-            </button>
-          </div>
-        </div>
-        <select
-          className="w-full border border-gray-300 rounded px-3 py-2"
-          value={selectedInbox ?? ""}
-          onChange={(e) => setSelectedInbox(e.target.value)}
-        >
-          {inboxes.map((i) => (
-            <option key={i.inboxId} value={i.inboxId}>
-              {i.email}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className="bg-white rounded-lg shadow">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h3 className="font-semibold">Messages ({messages.length})</h3>
-        </div>
-        {loading ? (
-          <p className="px-6 py-4 text-gray-500">Loading...</p>
-        ) : messages.length === 0 ? (
-          <p className="px-6 py-4 text-gray-500">No messages.</p>
         ) : (
-          <div className="divide-y divide-gray-200">
-            {messages.map((m) => (
-              <div key={m.messageId} className="px-6 py-3">
-                <p className="font-medium">{m.subject}</p>
-                <p className="text-sm text-gray-500">From: {m.from}</p>
-                <p className="text-sm text-gray-600 mt-1 line-clamp-2">{m.preview}</p>
-              </div>
+          <div style={{ display: "grid", gap: 12 }}>
+            {shifts.map((s) => (
+              <ShiftCard key={s._id} shift={s} onRebroadcast={(rate, label) => rebroadcast({ shiftId: s._id, displayRate: rate, displayRateLabel: label })} />
             ))}
           </div>
         )}
       </div>
+      <div>
+        <div style={{ background: "white", borderRadius: 8, padding: 16, position: "sticky", top: 16 }}>
+          <h3 style={{ margin: "0 0 8px", fontSize: 15 }}>Post a call-out</h3>
+          <PostShiftForm
+            disabled={creating}
+            onSubmit={async (data) => {
+              setCreating(true);
+              try {
+                await postShift({ businessId, ...data });
+              } finally {
+                setCreating(false);
+              }
+            }}
+            consentedCount={workers.filter((w) => w.consent).length}
+          />
+        </div>
+      </div>
     </div>
   );
 }
 
-function RemindersPanel({ project }: any) {
-  const [to, setTo] = useState("");
-  const [subject, setSubject] = useState("");
-  const [body, setBody] = useState("");
-  const [sent, setSent] = useState(false);
-  const [inbox, setInbox] = useState<any>(null);
-  const listInboxes = useAction(api.mail.listInboxes);
-  const createInbox = useAction(api.mail.getOrCreateInbox);
-  const sendEmail = useAction(api.mail.sendEmail);
-  const generateText = useAction(api.llm.runLlmTask);
-
-  React.useEffect(() => {
-    (async () => {
-      const inboxes = (await listInboxes({})) as any[];
-      if (inboxes.length > 0) {
-        setInbox(inboxes[0]);
-      } else {
-        const i = (await createInbox({
-          username: `compliance-${Date.now()}`,
-          displayName: "Compliance Bot",
-        })) as any;
-        setInbox(i);
-      }
-    })();
-  }, []);
-
-  async function handleGenerateDraft() {
-    if (!project) return;
-    const text = await generateText({
-      prompt: `Draft a professional compliance reminder email for the project "${project.name}" regarding the obligation: "${subject || "upcoming deadline"}". Keep it concise.`,
-      systemPrompt: "You are a compliance officer drafting professional reminder emails.",
-    });
-    setBody(text as string);
-  }
-
-  async function handleSend() {
-    if (!inbox || !to) return;
-    await sendEmail({
-      inboxId: inbox.inboxId,
-      to,
-      subject: subject || "Compliance Reminder",
-      text: body,
-    });
-    setSent(true);
-    setTimeout(() => setSent(false), 3000);
-  }
+function PostShiftForm({ onSubmit, disabled, consentedCount }: { onSubmit: (d: { role: string; startTime: number; urgency: "critical" | "urgent" | "normal" | "low"; displayRate: number; displayRateLabel: string }) => void; disabled: boolean; consentedCount: number }) {
+  const [role, setRole] = useState("barista");
+  const [urgency, setUrgency] = useState<"critical" | "urgent" | "normal" | "low">("urgent");
+  const [displayRate, setDisplayRate] = useState(22);
+  const [label, setLabel] = useState("/hr");
+  const [startTimeOffset, setStartTimeOffset] = useState(60);
 
   return (
-    <div className="space-y-6">
-      <div className="bg-white rounded-lg shadow p-6">
-        <h2 className="text-lg font-semibold mb-4">Send Compliance Reminder</h2>
-        {inbox && (
-          <p className="text-sm text-gray-500 mb-4">
-            From: {inbox.email}
-          </p>
-        )}
-        <div className="space-y-3">
-          <input
-            type="email"
-            value={to}
-            onChange={(e) => setTo(e.target.value)}
-            placeholder="Recipient email"
-            className="w-full border border-gray-300 rounded px-3 py-2"
-          />
-          <input
-            type="text"
-            value={subject}
-            onChange={(e) => setSubject(e.target.value)}
-            placeholder="Subject (or obligation to remind about)"
-            className="w-full border border-gray-300 rounded px-3 py-2"
-          />
-          <div className="flex gap-2">
-            <button
-              onClick={handleGenerateDraft}
-              className="px-3 py-1 text-sm bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
-            >
-              AI Draft
-            </button>
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        onSubmit({ role, startTime: Date.now() + startTimeOffset * 60 * 1000, urgency, displayRate, displayRateLabel: label });
+      }}
+      style={{ display: "grid", gap: 8 }}
+    >
+      <Field label="Role">
+        <input value={role} onChange={(e) => setRole(e.target.value)} style={input} />
+      </Field>
+      <Field label="Starts in (minutes)">
+        <input type="number" value={startTimeOffset} onChange={(e) => setStartTimeOffset(parseInt(e.target.value) || 60)} style={input} />
+      </Field>
+      <Field label="Urgency">
+        <select value={urgency} onChange={(e) => setUrgency(e.target.value as "critical" | "urgent" | "normal" | "low")} style={input}>
+          <option value="critical">critical (3 min timeout)</option>
+          <option value="urgent">urgent (5 min timeout)</option>
+          <option value="normal">normal (10 min timeout)</option>
+          <option value="low">low (20 min timeout)</option>
+        </select>
+      </Field>
+      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 8 }}>
+        <Field label="Display rate ($)">
+          <input type="number" value={displayRate} onChange={(e) => setDisplayRate(parseFloat(e.target.value) || 0)} style={input} />
+        </Field>
+        <Field label="Label">
+          <select value={label} onChange={(e) => setLabel(e.target.value)} style={input}>
+            <option value="/hr">/hr</option>
+            <option value="flat">flat</option>
+          </select>
+        </Field>
+      </div>
+      <p style={{ margin: 0, color: "#6b7280", fontSize: 12 }}>
+        Will broadcast to <strong>{consentedCount}</strong> consented worker{consentedCount === 1 ? "" : "s"} on file.
+      </p>
+      <button type="submit" disabled={disabled} style={primaryBtn}>
+        {disabled ? "Posting…" : "Post + broadcast"}
+      </button>
+    </form>
+  );
+}
+
+function ShiftCard({ shift, onRebroadcast }: { shift: any; onRebroadcast: (rate: number, label: string) => void }) {
+  const shortlist = useQuery(api.repliesQueries.shortlist, { shiftId: shift._id }) ?? [];
+  const approve = useMutation(api.repliesQueries.approveCandidate);
+  const [rebRate, setRebRate] = useState(shift.displayRate);
+  const [rebLabel, setRebLabel] = useState(shift.displayRateLabel);
+
+  const elapsed =
+    shift.broadcastAt && shift.confirmedAt
+      ? Math.round((shift.confirmedAt - shift.broadcastAt) / 1000)
+      : null;
+  const availableInternal = shortlist.filter(
+    (r: any) => r.source === "internal" && r.parsedAvailability?.available && r.receivedAt >= (shift.broadcastAt ?? 0)
+  );
+  const external = shortlist.filter((r: any) => r.source === "external");
+
+  return (
+    <div style={{ background: "white", borderRadius: 8, padding: 16, boxShadow: "0 1px 2px rgba(0,0,0,0.04)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+        <div>
+          <div style={{ fontWeight: 600, fontSize: 15 }}>
+            {shift.role} <span style={{ color: "#6b7280", fontWeight: 400 }}>· {new Date(shift.startTime).toLocaleString()}</span>
           </div>
-          <textarea
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            placeholder="Email body..."
-            rows={6}
-            className="w-full border border-gray-300 rounded px-3 py-2"
-          />
-          <button
-            onClick={handleSend}
-            disabled={!inbox || !to || !body}
-            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-          >
-            {sent ? "Sent!" : "Send Email"}
+          <div style={{ color: "#6b7280", fontSize: 12 }}>
+            ${shift.displayRate}{shift.displayRateLabel} · urgency {shift.urgency} · round {shift.broadcastRound}
+          </div>
+        </div>
+        <StatusBadge status={shift.status} elapsed={elapsed} />
+      </div>
+
+      {availableInternal.length > 0 && (
+        <div style={{ marginTop: 8 }}>
+          <div style={{ fontSize: 12, color: "#374151", fontWeight: 600, marginBottom: 6 }}>Internal candidates</div>
+          {availableInternal.map((r: any) => (
+            <div key={r._id} style={candidateRow(r.source)}>
+              <div>
+                <div style={{ fontWeight: 500 }}>{r.worker?.name ?? "(unknown)"} <span style={{ color: "#6b7280", fontSize: 12 }}>· {r.worker?.contact}</span></div>
+                <div style={{ color: "#374151", fontSize: 12, marginTop: 2 }}>"{r.rawReplyText.slice(0, 140)}"</div>
+                <div style={{ color: "#6b7280", fontSize: 11, marginTop: 2 }}>
+                  {r.parsedAvailability?.constraints && <>constraints: {r.parsedAvailability.constraints} · </>}
+                  confidence {Math.round((r.parsedAvailability?.confidence ?? 0) * 100)}% · score {r.rankScore?.toFixed(2)} · reliability {r.worker?.reliabilityScore?.toFixed(2)}
+                </div>
+              </div>
+              {shift.status !== "confirmed" && shift.status !== "cancelled" && (
+                <button onClick={() => approve({ shiftId: shift._id, responseId: r._id })} style={approveBtn}>
+                  Approve
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {shift.status === "escalating" && external.length === 0 && (
+        <div style={{ marginTop: 12, padding: 10, background: "#fef3c7", color: "#92400e", borderRadius: 6, fontSize: 13 }}>
+          Checking outside options… looking at warm backup pool, then a live search.
+        </div>
+      )}
+
+      {external.length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <div style={{ fontSize: 12, color: "#7c2d12", fontWeight: 600, marginBottom: 6, padding: "4px 8px", background: "#fed7aa", borderRadius: 4, display: "inline-block" }}>
+            Outside your roster (external — approval required before any contact)
+          </div>
+          {external.map((r: any) => (
+            <div key={r._id} style={{ ...candidateRow("external"), borderColor: "#fdba74" }}>
+              <div>
+                <a href={r.externalSourceUrl} target="_blank" rel="noopener noreferrer" style={{ color: "#9a3412", fontWeight: 500 }}>
+                  {r.externalSourceUrl}
+                </a>
+                <div style={{ color: "#7c2d12", fontSize: 11, marginTop: 2 }}>
+                  Source URL only — no contact info scraped. Click to view the listing.
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {shift.status === "escalating" && (
+        <div style={{ marginTop: 12, display: "flex", gap: 8, alignItems: "center", padding: 10, background: "#fef2f2", borderRadius: 6 }}>
+          <div style={{ flex: 1, fontSize: 13, color: "#991b1b" }}>
+            Internal sourcing timed out. Bump the rate and re-broadcast, or wait for external results.
+          </div>
+          <input type="number" value={rebRate} onChange={(e) => setRebRate(parseFloat(e.target.value) || 0)} style={{ ...input, width: 70 }} />
+          <select value={rebLabel} onChange={(e) => setRebLabel(e.target.value)} style={{ ...input, width: 70 }}>
+            <option value="/hr">/hr</option>
+            <option value="flat">flat</option>
+          </select>
+          <button onClick={() => onRebroadcast(rebRate, rebLabel)} style={{ ...primaryBtn, background: "#dc2626" }}>
+            Re-broadcast
           </button>
         </div>
+      )}
+
+      {shift.status === "confirmed" && (
+        <div style={{ marginTop: 12, padding: 10, background: "#dcfce7", color: "#166534", borderRadius: 6, fontSize: 13 }}>
+          Confirmed in {elapsed}s from broadcast.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StatusBadge({ status, elapsed }: { status: string; elapsed: number | null }) {
+  const map: Record<string, { color: string; bg: string; label: string }> = {
+    broadcasting: { color: "#1e40af", bg: "#dbeafe", label: "broadcasting" },
+    shortlist_ready: { color: "#92400e", bg: "#fef3c7", label: "shortlist ready" },
+    escalating: { color: "#991b1b", bg: "#fee2e2", label: "checking outside" },
+    confirmed: { color: "#166534", bg: "#dcfce7", label: elapsed != null ? `confirmed (${elapsed}s)` : "confirmed" },
+    cancelled: { color: "#374151", bg: "#e5e7eb", label: "cancelled" },
+  };
+  const s = map[status] ?? map.broadcasting;
+  return (
+    <span style={{ padding: "3px 8px", fontSize: 11, fontWeight: 600, color: s.color, background: s.bg, borderRadius: 4 }}>
+      {s.label}
+    </span>
+  );
+}
+
+function candidateRow(source: string): React.CSSProperties {
+  return {
+    display: "flex",
+    gap: 12,
+    alignItems: "flex-start",
+    padding: 10,
+    marginTop: 6,
+    background: source === "external" ? "#fff7ed" : "#f9fafb",
+    border: "1px solid #e5e7eb",
+    borderRadius: 6,
+    fontSize: 13,
+  };
+}
+
+function WorkersTab({ businessId }: { businessId: Id<"businesses"> }) {
+  const workers = useQuery(api.workers.list, { businessId }) ?? [];
+  const setConsent = useMutation(api.workers.setConsent);
+  return (
+    <div>
+      <h2 style={{ margin: "0 0 12px", fontSize: 16 }}>Workers</h2>
+      <div style={{ background: "white", borderRadius: 8, padding: 16 }}>
+        <p style={{ color: "#6b7280", fontSize: 13, margin: "0 0 12px" }}>
+          Workers only receive future broadcasts if <strong>consent = true</strong>. Toggle below to demonstrate the consent filter.
+        </p>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+          <thead>
+            <tr style={{ textAlign: "left", color: "#6b7280", fontSize: 12 }}>
+              <th style={th}>Name</th>
+              <th style={th}>Contact</th>
+              <th style={th}>Roles</th>
+              <th style={th}>Consent</th>
+              <th style={th}>Reliability</th>
+            </tr>
+          </thead>
+          <tbody>
+            {workers.map((w) => (
+              <tr key={w._id} style={{ borderTop: "1px solid #f3f4f6" }}>
+                <td style={td}>{w.name}</td>
+                <td style={{ ...td, color: "#6b7280" }}>{w.contact}</td>
+                <td style={td}>{w.roles.join(", ")}</td>
+                <td style={td}>
+                  <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                    <input type="checkbox" checked={w.consent} onChange={(e) => setConsent({ workerId: w._id, consent: e.target.checked })} />
+                    {w.consent ? "yes" : "no"}
+                  </label>
+                </td>
+                <td style={td}>{w.reliabilityScore.toFixed(2)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );
 }
 
-function ActivityPanel() {
-  const events = useQuery(api.events.recent, { limit: 100 }) ?? [];
-  const [filter, setFilter] = useState<string>("");
-
-  const filtered = filter
-    ? events.filter((e: any) => e.action.includes(filter))
-    : events;
-
+function OnboardTab() {
+  const createBusiness = useAction(api.businesses.createBusiness);
+  const [name, setName] = useState("Acme Bakery");
+  const [category, setCategory] = useState("bakery");
+  const [location, setLocation] = useState("Merced, CA");
+  const [sizeSignal, setSizeSignal] = useState("small (3-8 staff)");
+  const [sourceUrl, setSourceUrl] = useState("");
+  const [result, setResult] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   return (
-    <div className="space-y-6">
-      <div className="bg-white rounded-lg shadow p-6">
-        <h2 className="text-lg font-semibold mb-2">Activity Log</h2>
-        <p className="text-sm text-gray-500 mb-4">
-          Audit trail of every action: cron reminders, dashboard clicks, and email replies.
-          Filter by action type to see only one channel.
+    <div style={{ maxWidth: 560 }}>
+      <h2 style={{ margin: "0 0 12px", fontSize: 16 }}>Onboard a business (Firecrawl-enriched profile)</h2>
+      <div style={{ background: "white", borderRadius: 8, padding: 16, display: "grid", gap: 8 }}>
+        <p style={{ color: "#6b7280", fontSize: 13, margin: "0 0 6px" }}>
+          Manager signs up with name, city, and an optional website. For this build, the manager reviews/edits the
+          structured profile below before confirming (no auto-save).
         </p>
-        <div className="flex gap-2 flex-wrap mb-4">
-          <button
-            onClick={() => setFilter("")}
-            className={`px-3 py-1 text-sm rounded ${
-              filter === "" ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-            }`}
-          >
-            All
-          </button>
-          <button
-            onClick={() => setFilter("reminder")}
-            className={`px-3 py-1 text-sm rounded ${
-              filter === "reminder" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-            }`}
-          >
-            Reminders
-          </button>
-          <button
-            onClick={() => setFilter("reply")}
-            className={`px-3 py-1 text-sm rounded ${
-              filter === "reply" ? "bg-purple-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-            }`}
-          >
-            Email replies
-          </button>
-          <button
-            onClick={() => setFilter("completed")}
-            className={`px-3 py-1 text-sm rounded ${
-              filter === "completed" ? "bg-green-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-            }`}
-          >
-            Completions
-          </button>
-          <button
-            onClick={() => setFilter("snoozed")}
-            className={`px-3 py-1 text-sm rounded ${
-              filter === "snoozed" ? "bg-yellow-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-            }`}
-          >
-            Snoozes
-          </button>
-        </div>
-      </div>
-
-      <div className="bg-white rounded-lg shadow">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h3 className="font-semibold">Events ({filtered.length})</h3>
-        </div>
-        <div className="divide-y divide-gray-200 max-h-[600px] overflow-y-auto">
-          {filtered.length === 0 ? (
-            <p className="px-6 py-4 text-gray-500">No events match the current filter.</p>
-          ) : (
-            filtered.map((e: any) => (
-              <div key={e._id} className="px-6 py-3">
-                <div className="flex items-baseline justify-between">
-                  <p className="text-sm font-medium text-gray-900">
-                    <span className={`px-2 py-0.5 rounded text-xs mr-2 ${
-                      e.action.includes("reply")
-                        ? "bg-purple-100 text-purple-800"
-                        : e.action.includes("reminder")
-                        ? "bg-blue-100 text-blue-800"
-                        : e.action === "completed"
-                        ? "bg-green-100 text-green-800"
-                        : e.action === "snoozed"
-                        ? "bg-yellow-100 text-yellow-800"
-                        : "bg-gray-100 text-gray-800"
-                    }`}>
-                      {e.action}
-                    </span>
-                    {e.summary}
-                  </p>
-                  <p className="text-xs text-gray-500 whitespace-nowrap ml-4">
-                    {new Date(e.timestamp).toLocaleString()}
-                  </p>
-                </div>
-                <p className="text-xs text-gray-400 mt-1">
-                  table: {e.table} • rowId: {e.rowId}
-                </p>
-              </div>
-            ))
-          )}
-        </div>
+        <Field label="Business name"><input value={name} onChange={(e) => setName(e.target.value)} style={input} /></Field>
+        <Field label="Category (generic, e.g. cafe, bakery, clinic)"><input value={category} onChange={(e) => setCategory(e.target.value)} style={input} /></Field>
+        <Field label="Location"><input value={location} onChange={(e) => setLocation(e.target.value)} style={input} /></Field>
+        <Field label="Size signal"><input value={sizeSignal} onChange={(e) => setSizeSignal(e.target.value)} style={input} /></Field>
+        <Field label="Source URL (optional)"><input value={sourceUrl} onChange={(e) => setSourceUrl(e.target.value)} style={input} placeholder="https://..." /></Field>
+        <button
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            try {
+              const r = await createBusiness({ name, category, location, sizeSignal, hoursJson: "{}", sourceUrl: sourceUrl || undefined });
+              setResult(`Created ${name} with inbox ${(r as any).inboxEmail}`);
+            } catch (e) {
+              setResult(`Error: ${(e as Error).message}`);
+            } finally {
+              setBusy(false);
+            }
+          }}
+          style={primaryBtn}
+        >
+          {busy ? "Creating…" : "Confirm + create business"}
+        </button>
+        {result && <p style={{ margin: 0, fontSize: 13, color: "#374151" }}>{result}</p>}
       </div>
     </div>
+  );
+}
+
+function ActivityTab() {
+  const events = useQuery(api.events.recent, { limit: 200 }) ?? [];
+  return (
+    <div>
+      <h2 style={{ margin: "0 0 12px", fontSize: 16 }}>Activity log</h2>
+      <div style={{ background: "white", borderRadius: 8, padding: 16, maxHeight: 600, overflowY: "auto" }}>
+        {events.length === 0 ? (
+          <p style={{ color: "#6b7280" }}>No events yet.</p>
+        ) : events.map((e) => (
+          <div key={e._id} style={{ padding: "8px 0", borderBottom: "1px solid #f3f4f6", fontSize: 13 }}>
+            <span style={{ display: "inline-block", padding: "1px 6px", background: badgeBg(e.action), color: badgeColor(e.action), borderRadius: 4, fontSize: 11, fontWeight: 600, marginRight: 8 }}>
+              {e.action}
+            </span>
+            <span style={{ color: "#111827" }}>{e.summary}</span>
+            <span style={{ color: "#9ca3af", marginLeft: 8, fontSize: 11 }}>{new Date(e.timestamp).toLocaleString()}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function badgeBg(action: string): string {
+  if (action.includes("confirmed")) return "#dcfce7";
+  if (action.includes("broadcast")) return "#dbeafe";
+  if (action.includes("parse_failed")) return "#fee2e2";
+  if (action.includes("escalat")) return "#fed7aa";
+  if (action.includes("reply")) return "#ede9fe";
+  return "#f3f4f6";
+}
+function badgeColor(action: string): string {
+  if (action.includes("confirmed")) return "#166534";
+  if (action.includes("broadcast")) return "#1e40af";
+  if (action.includes("parse_failed")) return "#991b1b";
+  if (action.includes("escalat")) return "#9a3412";
+  if (action.includes("reply")) return "#5b21b6";
+  return "#374151";
+}
+
+const input: React.CSSProperties = { padding: "6px 8px", border: "1px solid #d1d5db", borderRadius: 6, fontSize: 13, width: "100%" };
+const primaryBtn: React.CSSProperties = { padding: "8px 12px", background: "#0f172a", color: "white", border: "none", borderRadius: 6, fontSize: 13, fontWeight: 500, cursor: "pointer" };
+const approveBtn: React.CSSProperties = { ...primaryBtn, background: "#16a34a", whiteSpace: "nowrap" };
+const th: React.CSSProperties = { padding: "8px 6px", fontWeight: 600 };
+const td: React.CSSProperties = { padding: "8px 6px" };
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label style={{ display: "grid", gap: 4 }}>
+      <span style={{ fontSize: 11, color: "#6b7280", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.3 }}>{label}</span>
+      {children}
+    </label>
   );
 }

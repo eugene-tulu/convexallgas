@@ -1,5 +1,5 @@
 {
-  "name": "eia-compliance-copilot",
+  "name": "proxy",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -10,11 +10,7 @@
     "convex": "convex"
   },
   "dependencies": {
-    "@ai-sdk/openai": "^4.0.57",
-    "@convex-dev/rag": "^0.7.6",
-    "@x402/fetch": "^2.24.0",
     "agentmail": "^0.5.21",
-    "ai": "^7.0.91",
     "convex": "^1.45.0",
     "firecrawl": "^4.38.0",
     "openai": "^7.8.0",
