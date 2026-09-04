@@ -2,6 +2,7 @@
 import { v } from "convex/values";
 import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { Id } from "./_generated/dataModel";
 
 const SHIFT_TAG_RE = /\[shift:([a-zA-Z0-9_-]+)\]/;
 
@@ -45,16 +46,14 @@ export const processBroadcastReply = internalAction({
       });
       return { processed: false, reason: "no shift tag" };
     }
-    const shiftId = tagMatch[1] as string;
-    const shift = await ctx.runQuery(internal.shiftsBridge.getShift, {
-      shiftId: shiftId as never,
-    });
+    const shiftId = tagMatch[1] as Id<"shifts">;
+    const shift = await ctx.runQuery(internal.shiftsBridge.getShift, { shiftId });
     if (!shift) {
       await ctx.runMutation(internal.eventsLog.logEvent, {
         table: "webhook",
         rowId: args.messageId,
         action: "orphan_reply",
-        summary: `Reply from ${args.from} referenced missing shift ${shiftId}`,
+        summary: `Reply from ${args.from} referenced missing or invalid shift ${tagMatch[1]}`,
       });
       return { processed: false, reason: "shift not found" };
     }
@@ -97,7 +96,7 @@ export const processBroadcastReply = internalAction({
 
     const inserted = await ctx.runMutation(internal.repliesBridge.insertResponse, {
       shiftId: shift._id,
-      workerId: worker.workerId as never,
+      workerId: worker.workerId,
       rawReplyText: text.slice(0, 4000),
       agentmailMessageId: args.messageId,
       source: "internal",
@@ -124,11 +123,12 @@ export const processBroadcastReply = internalAction({
         id: inserted.responseId,
         parsedAvailability: parsed,
       });
+      // Compute the rank score for this single response (O(1)) rather than
+      // re-scanning every response on every reply.
+      await ctx.runMutation(internal.repliesBridge.computeAndStoreRankScore, {
+        responseId: inserted.responseId,
+      });
     }
-
-    await ctx.runMutation(internal.repliesBridge.rankShiftResponses, {
-      shiftId: shift._id,
-    });
 
     if (shift.status === "broadcasting") {
       const availableCount = await ctx.runQuery(
@@ -152,12 +152,24 @@ export const processBroadcastReply = internalAction({
       }
     }
 
-    await ctx.scheduler.runAfter(0, internal.repliesBridge.sendOptInInvite, {
-      shiftId: shift._id,
-      workerId: worker.workerId as never,
-      email: args.from,
-      businessName: business.name,
-    });
+    // Schedule the opt-in invite separately so a scheduling error here
+    // never blocks the reply from being recorded. (scheduler.runAfter is
+    // already fire-and-forget, but we log a failure if it throws.)
+    try {
+      await ctx.scheduler.runAfter(0, internal.repliesBridge.sendOptInInvite, {
+        shiftId: shift._id,
+        workerId: worker.workerId,
+        email: args.from,
+        businessName: business.name,
+      });
+    } catch (e) {
+      await ctx.runMutation(internal.eventsLog.logEvent, {
+        table: "workers",
+        rowId: worker.workerId,
+        action: "opt_in_schedule_failed",
+        summary: `Failed to schedule opt-in invite for ${args.from}: ${(e as Error).message}`,
+      });
+    }
 
     return { processed: true, responseId: inserted.responseId };
   },

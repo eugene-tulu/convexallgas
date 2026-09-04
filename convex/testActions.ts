@@ -1,9 +1,11 @@
 "use node";
 import { v } from "convex/values";
-import { action, internalAction } from "./_generated/server";
+import { internalAction } from "./_generated/server";
 import { internal, api } from "./_generated/api";
 
-export const simulateReply = action({
+// All test helpers are internal — they were exposed during initial verification
+// but must not be callable from the client. Use the Convex dashboard to invoke.
+export const simulateReply = internalAction({
   args: {
     inboxId: v.string(),
     messageId: v.string(),
@@ -23,7 +25,7 @@ export const simulateReply = action({
   },
 });
 
-export const triggerEscalation = action({
+export const triggerEscalation = internalAction({
   args: { shiftId: v.id("shifts") },
   handler: async (ctx, args) => {
     return await ctx.runAction(internal.escalationBridge.runEscalationSearch, {
@@ -32,14 +34,14 @@ export const triggerEscalation = action({
   },
 });
 
-export const triggerEscalationCron = action({
+export const triggerEscalationCron = internalAction({
   args: {},
   handler: async (ctx) => {
     return await ctx.runAction(internal.escalation.checkEscalations, {});
   },
 });
 
-export const raceApprove = action({
+export const raceApprove = internalAction({
   args: { shiftId: v.id("shifts"), responseId: v.id("responses") },
   handler: async (ctx, args) => {
     const promises: Promise<unknown>[] = [];
@@ -55,7 +57,7 @@ export const raceApprove = action({
   },
 });
 
-export const testConsentFilter = action({
+export const testConsentFilter = internalAction({
   args: { businessId: v.id("businesses") },
   handler: async (ctx, args) => {
     const consented = await ctx.runQuery(internal.workersBridge.listConsentedForBusiness, {
@@ -73,10 +75,9 @@ export const testConsentFilter = action({
   },
 });
 
-export const testBackupPoolTtl = action({
+export const testBackupPoolTtl = internalAction({
   args: { businessId: v.id("businesses") },
   handler: async (ctx, args) => {
-    // Seed a 25h-old entry for "merced coffee role" + Merced location
     const staleId: string = await ctx.runMutation(
       internal.escalationBridge.insertPoolEntry,
       {

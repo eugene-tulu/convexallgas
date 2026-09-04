@@ -15,13 +15,16 @@ export const listMessages = action({
     const result = await client.inboxes.messages.list(args.inboxId, {
       limit: args.limit ?? 20,
     });
-    return (result.messages ?? []).map((m: Record<string, unknown>) => ({
-      messageId: String(m.messageId ?? ""),
-      from: m.from ? String(m.from) : undefined,
-      to: m.to ? String(m.to) : undefined,
-      subject: m.subject ? String(m.subject) : undefined,
-      preview: m.preview ? String(m.preview) : undefined,
-    }));
+    return (result.messages ?? []).map((m) => {
+      const r = m as { messageId?: unknown; from?: unknown; to?: unknown; subject?: unknown; preview?: unknown };
+      return {
+        messageId: String(r.messageId ?? ""),
+        from: r.from ? String(r.from) : undefined,
+        to: r.to ? String(r.to) : undefined,
+        subject: r.subject ? String(r.subject) : undefined,
+        preview: r.preview ? String(r.preview) : undefined,
+      };
+    });
   },
 });
 
@@ -39,14 +42,23 @@ export const getOrCreateInbox = action({
         displayName: args.displayName ?? args.username,
       });
       inbox = { inboxId: String(created.inboxId), email: String(created.email) };
-    } catch (e) {
-      // Fall back to listing inboxes and finding one we can use.
+    } catch (e: any) {
+      // Only fall back to "use an existing inbox" when the API key lacks
+      // inbox_create (403 ForbiddenError) or the username is already taken
+      // (409 conflict). Re-throw network / 5xx errors.
+      const msg: string = e?.message ?? "";
+      const isPermissionDenied = /403|ForbiddenError|missing_permission/i.test(msg);
+      const isAlreadyExists = /409|already.*exist/i.test(msg);
+      if (!isPermissionDenied && !isAlreadyExists) throw e;
       const result = await client.inboxes.list();
-      const all = (result.inboxes ?? []) as Array<Record<string, unknown>>;
-      const found = all.find(
-        (i) => String(i.email ?? "").startsWith(args.username + "@") || String(i.email ?? "") === `${args.username}@agentmail.to`
-      );
-      if (!found) throw e;
+      const all = (result.inboxes ?? []) as Array<{ inboxId?: unknown; email?: unknown }>;
+      const wanted = args.username + "@";
+      const found = all.find((i) => String(i.email ?? "").startsWith(wanted));
+      if (!found) {
+        throw new Error(
+          `Cannot create inbox (${isPermissionDenied ? "no inbox_create permission" : "username taken"}) and no existing inbox with prefix "${wanted}"`
+        );
+      }
       inbox = { inboxId: String(found.inboxId), email: String(found.email) };
     }
 
@@ -80,10 +92,12 @@ export const listInboxes = action({
   handler: async (ctx) => {
     const client = getClient();
     const result = await client.inboxes.list();
-    return (result.inboxes ?? []).map((i: Record<string, unknown>) => ({
-      inboxId: String(i.inboxId ?? ""),
-      email: String(i.email ?? ""),
-      displayName: i.displayName ? String(i.displayName) : undefined,
+    return (result.inboxes ?? []).map((i) => ({
+      inboxId: String((i as { inboxId?: unknown }).inboxId ?? ""),
+      email: String((i as { email?: unknown }).email ?? ""),
+      displayName: (i as { displayName?: unknown }).displayName
+        ? String((i as { displayName?: unknown }).displayName)
+        : undefined,
     }));
   },
 });

@@ -13,21 +13,28 @@ export const shortlist = query({
       .withIndex("by_shiftId_receivedAt", (q) => q.eq("shiftId", args.shiftId))
       .order("asc")
       .collect();
-    const out = [];
-    for (const r of responses) {
-      let worker: { name: string; contact: string; reliabilityScore: number } | null = null;
-      if (r.workerId) {
-        const w = await ctx.db.get(r.workerId);
-        if (w) {
-          worker = {
-            name: w.name,
-            contact: w.contact,
-            reliabilityScore: w.reliabilityScore,
-          };
-        }
-      }
-      out.push({ ...r, worker });
-    }
+    // Batch-load all workers for this shift in a single query, then index by id.
+    const workerIds = Array.from(
+      new Set(responses.map((r) => r.workerId).filter((id): id is NonNullable<typeof id> => !!id))
+    );
+    const workers = workerIds.length
+      ? await ctx.db
+          .query("workers")
+          .filter((q) =>
+            q.or(...workerIds.map((id) => q.eq(q.field("_id"), id)))
+          )
+          .collect()
+      : [];
+    const workerById = new Map(workers.map((w) => [w._id, w]));
+    const out = responses.map((r) => {
+      const w = r.workerId ? workerById.get(r.workerId) : null;
+      return {
+        ...r,
+        worker: w
+          ? { name: w.name, contact: w.contact, reliabilityScore: w.reliabilityScore }
+          : null,
+      };
+    });
     return out.sort((a, b) => (b.rankScore ?? 0) - (a.rankScore ?? 0));
   },
 });

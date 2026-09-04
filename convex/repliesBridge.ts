@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { env } from "./_generated/server";
 
 const parsedAvailability = v.object({
   available: v.boolean(),
@@ -53,6 +54,9 @@ export const patchResponseParsed = internalMutation({
 export const rankShiftResponses = internalMutation({
   args: { shiftId: v.id("shifts") },
   handler: async (ctx, args) => {
+    // Kept for back-compat (backfill). New replies should call
+    // `computeAndStoreRankScore` directly so we don't scan the whole table
+    // on every inbound reply.
     const shift = await ctx.db.get(args.shiftId);
     if (!shift) return;
     const sinceBroadcastAt = shift.broadcastAt ?? shift._creationTime;
@@ -63,32 +67,58 @@ export const rankShiftResponses = internalMutation({
     for (const r of responses) {
       if (r.source !== "internal") continue;
       if (r.receivedAt < sinceBroadcastAt) continue;
-      let reliability = 0.5;
-      if (r.workerId) {
-        const w = await ctx.db.get(r.workerId);
-        if (w) reliability = w.reliabilityScore;
-      }
-      const conf = r.parsedAvailability?.confidence ?? 0.5;
-      const available = r.parsedAvailability?.available ? 1 : 0;
-      const recencySec = Math.max(0, (Date.now() - r.receivedAt) / 1000);
-      const recency = Math.max(0, 1 - recencySec / 60);
-      const score = 0.5 * conf + 0.3 * reliability + 0.2 * recency;
-      const finalScore = available === 1 ? score : score - 10;
-      await ctx.db.patch(r._id, { rankScore: finalScore });
+      const score = await computeScore(ctx, r);
+      await ctx.db.patch(r._id, { rankScore: score });
     }
+  },
+});
+
+// Single-response ranking — O(1) given the row + worker.
+async function computeScore(
+  ctx: { db: { get: (id: any) => Promise<any> } },
+  r: {
+    workerId?: any;
+    parsedAvailability?: { confidence?: number; available?: boolean };
+    receivedAt: number;
+  }
+): Promise<number> {
+  let reliability = 0.5;
+  if (r.workerId) {
+    const w = await ctx.db.get(r.workerId);
+    if (w) reliability = w.reliabilityScore;
+  }
+  const conf = r.parsedAvailability?.confidence ?? 0.5;
+  const available = r.parsedAvailability?.available ? 1 : 0;
+  const recencySec = Math.max(0, (Date.now() - r.receivedAt) / 1000);
+  const recency = Math.max(0, 1 - recencySec / 60);
+  const score = 0.5 * conf + 0.3 * reliability + 0.2 * recency;
+  return available === 1 ? score : score - 10;
+}
+
+export const computeAndStoreRankScore = internalMutation({
+  args: { responseId: v.id("responses") },
+  handler: async (ctx, args) => {
+    const r = await ctx.db.get(args.responseId);
+    if (!r) return;
+    if (r.source !== "internal") return;
+    const score = await computeScore(ctx, r);
+    await ctx.db.patch(args.responseId, { rankScore: score });
   },
 });
 
 export const countAvailableSince = internalQuery({
   args: { shiftId: v.id("shifts"), sinceBroadcastAt: v.number() },
   handler: async (ctx, args) => {
+    // Use the (shiftId, receivedAt, _creationTime) index with a range on
+    // receivedAt so the filter happens in the index scan, not in JS.
     const rows = await ctx.db
       .query("responses")
-      .withIndex("by_shiftId_receivedAt", (q) => q.eq("shiftId", args.shiftId))
+      .withIndex("by_shiftId_receivedAt", (q) =>
+        q.eq("shiftId", args.shiftId).gte("receivedAt", args.sinceBroadcastAt)
+      )
       .collect();
     let count = 0;
     for (const r of rows) {
-      if (r.receivedAt < args.sinceBroadcastAt) continue;
       if (r.source !== "internal") continue;
       if (r.parsedAvailability?.available === true) count++;
     }
@@ -196,7 +226,7 @@ export const sendOptInInvite = internalMutation({
     if (!shift) return;
     const business = await ctx.db.get(shift.businessId);
     if (!business) return;
-    const siteUrl = process.env.CONVEX_SITE_URL ?? "https://basic-hippopotamus-995.convex.site";
+    const siteUrl = env.CONVEX_SITE_URL ?? "https://basic-hippopotamus-995.convex.site";
     const link = `${siteUrl}/opt-in?token=${token}`;
     await ctx.scheduler.runAfter(0, internal.repliesActions.dispatchOptInInvite, {
       businessInboxId: business.inboxId,

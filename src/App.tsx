@@ -1,7 +1,33 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "../convex/_generated/api";
-import { Id } from "../convex/_generated/dataModel";
+import { Id, Doc } from "../convex/_generated/dataModel";
+
+type Shift = Doc<"shifts">;
+type ShiftStatus = Shift["status"];
+type Urgency = Shift["urgency"];
+
+type ShortlistRow = {
+  _id: Id<"responses">;
+  _creationTime: number;
+  shiftId: Id<"shifts">;
+  workerId?: Id<"workers">;
+  rawReplyText: string;
+  parsedAvailability?: {
+    available: boolean;
+    constraints: string;
+    confidence: number;
+    reasons: string;
+  };
+  rankScore?: number;
+  source: "internal" | "external";
+  receivedAt: number;
+  agentmailMessageId: string;
+  externalCandidateRef?: string;
+  externalSourceUrl?: string;
+  worker: { name: string; contact: string; reliabilityScore: number } | null;
+};
+
 
 export default function App() {
   const businesses = useQuery(api.businessesQueries.list) ?? [];
@@ -180,8 +206,8 @@ function PostShiftForm({ onSubmit, disabled, consentedCount }: { onSubmit: (d: {
   );
 }
 
-function ShiftCard({ shift, onRebroadcast }: { shift: any; onRebroadcast: (rate: number, label: string) => void }) {
-  const shortlist = useQuery(api.repliesQueries.shortlist, { shiftId: shift._id }) ?? [];
+function ShiftCard({ shift, onRebroadcast }: { shift: Shift; onRebroadcast: (rate: number, label: string) => void }) {
+  const shortlist: ShortlistRow[] = (useQuery(api.repliesQueries.shortlist, { shiftId: shift._id }) ?? []) as ShortlistRow[];
   const approve = useMutation(api.repliesQueries.approveCandidate);
   const [rebRate, setRebRate] = useState(shift.displayRate);
   const [rebLabel, setRebLabel] = useState(shift.displayRateLabel);
@@ -191,9 +217,9 @@ function ShiftCard({ shift, onRebroadcast }: { shift: any; onRebroadcast: (rate:
       ? Math.round((shift.confirmedAt - shift.broadcastAt) / 1000)
       : null;
   const availableInternal = shortlist.filter(
-    (r: any) => r.source === "internal" && r.parsedAvailability?.available && r.receivedAt >= (shift.broadcastAt ?? 0)
+    (r) => r.source === "internal" && r.parsedAvailability?.available && r.receivedAt >= (shift.broadcastAt ?? 0)
   );
-  const external = shortlist.filter((r: any) => r.source === "external");
+  const external = shortlist.filter((r) => r.source === "external");
 
   return (
     <div style={{ background: "white", borderRadius: 8, padding: 16, boxShadow: "0 1px 2px rgba(0,0,0,0.04)" }}>
@@ -212,7 +238,7 @@ function ShiftCard({ shift, onRebroadcast }: { shift: any; onRebroadcast: (rate:
       {availableInternal.length > 0 && (
         <div style={{ marginTop: 8 }}>
           <div style={{ fontSize: 12, color: "#374151", fontWeight: 600, marginBottom: 6 }}>Internal candidates</div>
-          {availableInternal.map((r: any) => (
+          {availableInternal.map((r) => (
             <div key={r._id} style={candidateRow(r.source)}>
               <div>
                 <div style={{ fontWeight: 500 }}>{r.worker?.name ?? "(unknown)"} <span style={{ color: "#6b7280", fontSize: 12 }}>· {r.worker?.contact}</span></div>
@@ -243,7 +269,7 @@ function ShiftCard({ shift, onRebroadcast }: { shift: any; onRebroadcast: (rate:
           <div style={{ fontSize: 12, color: "#7c2d12", fontWeight: 600, marginBottom: 6, padding: "4px 8px", background: "#fed7aa", borderRadius: 4, display: "inline-block" }}>
             Outside your roster (external — approval required before any contact)
           </div>
-          {external.map((r: any) => (
+          {external.map((r) => (
             <div key={r._id} style={{ ...candidateRow("external"), borderColor: "#fdba74" }}>
               <div>
                 <a href={r.externalSourceUrl} target="_blank" rel="noopener noreferrer" style={{ color: "#9a3412", fontWeight: 500 }}>

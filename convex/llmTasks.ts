@@ -4,6 +4,37 @@ import { action } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { runLlmTask } from "./llm";
 
+// Extract the first balanced top-level JSON object from a string. Handles
+// nested objects, quoted strings with escaped quotes, and ignores braces
+// inside string literals. Returns null if no balanced object is found.
+function extractFirstJsonObject(text: string): string | null {
+  let start = -1;
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (escape) { escape = false; continue; }
+    if (inString) {
+      if (c === "\\") { escape = true; continue; }
+      if (c === '"') inString = false;
+      continue;
+    }
+    if (c === '"') { inString = true; continue; }
+    if (c === "{") {
+      if (start === -1) start = i;
+      depth++;
+    } else if (c === "}") {
+      if (depth === 0) continue;
+      depth--;
+      if (depth === 0 && start !== -1) {
+        return text.slice(start, i + 1);
+      }
+    }
+  }
+  return null;
+}
+
 function safeJsonParse<T>(text: string): { ok: true; value: T } | { ok: false; error: string } {
   const cleaned = text
     .trim()
@@ -13,10 +44,10 @@ function safeJsonParse<T>(text: string): { ok: true; value: T } | { ok: false; e
   try {
     return { ok: true, value: JSON.parse(cleaned) as T };
   } catch (e) {
-    const m = cleaned.match(/\{[\s\S]*\}/);
-    if (m) {
+    const candidate = extractFirstJsonObject(cleaned);
+    if (candidate) {
       try {
-        return { ok: true, value: JSON.parse(m[0]) as T };
+        return { ok: true, value: JSON.parse(candidate) as T };
       } catch (e2) {
         return { ok: false, error: (e2 as Error).message };
       }

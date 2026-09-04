@@ -24,11 +24,50 @@ export const createBusiness = action({
       username,
       displayName: args.name,
     })) as { inboxId: string; email: string };
+
+    // If a source URL was provided, scrape + extract a profile. The user
+    // still reviews/edits before saving (in the form), so the extraction
+    // is purely advisory — we keep the form's input as the source of truth
+    // and only fall back to the LLM's category/hours/size when the user
+    // didn't supply them.
+    let category = args.category;
+    let hoursJson = args.hoursJson ?? "";
+    let sizeSignal = args.sizeSignal ?? "";
+    if (args.sourceUrl) {
+      try {
+        const scraped = (await ctx.runAction(internal.firecrawl.scrape, {
+          url: args.sourceUrl,
+        })) as { markdown: string };
+        if (scraped.markdown) {
+          const profile = (await ctx.runAction(internal.llmTasks.extractBusinessProfile, {
+            markdown: scraped.markdown,
+            businessName: args.name,
+            city: args.location,
+          })) as
+            | { name: string; category: string; hoursJson: string; sizeSignal: string; location: string }
+            | null;
+          if (profile) {
+            category = category || profile.category;
+            hoursJson = hoursJson || profile.hoursJson;
+            sizeSignal = sizeSignal || profile.sizeSignal;
+          }
+        }
+      } catch (e) {
+        // Scrape/extract failure is non-fatal — the form values still go in.
+        await ctx.runMutation(internal.eventsLog.logEvent, {
+          table: "businesses",
+          rowId: "scrape",
+          action: "scrape_failed",
+          summary: `Scrape/extract for ${args.sourceUrl} failed: ${(e as Error).message}`,
+        });
+      }
+    }
+
     const businessId = await ctx.runMutation(internal.businessesBridge.insertBusiness, {
       name: args.name,
-      category: args.category,
-      hoursJson: args.hoursJson ?? "",
-      sizeSignal: args.sizeSignal ?? "",
+      category,
+      hoursJson,
+      sizeSignal,
       location: args.location,
       sourceUrl: args.sourceUrl ?? "",
       inboxId: inbox.inboxId,
@@ -38,7 +77,7 @@ export const createBusiness = action({
       table: "businesses",
       rowId: businessId,
       action: "business_created",
-      summary: `Created business "${args.name}" with inbox ${inbox.email}`,
+      summary: `Created business "${args.name}" (${category}) with inbox ${inbox.email}`,
     });
     return { businessId, inboxId: inbox.inboxId, inboxEmail: inbox.email };
   },

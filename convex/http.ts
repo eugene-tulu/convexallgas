@@ -1,6 +1,7 @@
 import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { env } from "./_generated/server";
 import { optInHandler } from "./optInHttp";
 
 const http = httpRouter();
@@ -10,6 +11,16 @@ http.route({
   path: "/webhooks/agentmail",
   handler: httpAction(async (ctx, request) => {
     try {
+      // Webhook auth: reject anything that doesn't carry the shared secret header.
+      // Set AGENTMAIL_WEBHOOK_SECRET on the deployment; absence disables the check
+      // (so dev with no secret still works) but should not be the prod config.
+      const expected = env.AGENTMAIL_WEBHOOK_SECRET;
+      if (expected) {
+        const got = request.headers.get("x-proxy-webhook-secret");
+        if (got !== expected) {
+          return new Response("unauthorized", { status: 401 });
+        }
+      }
       const body = (await request.json()) as Record<string, unknown>;
       const eventType =
         (body.event_type as string | undefined) ??

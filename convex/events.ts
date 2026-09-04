@@ -13,7 +13,7 @@ export const recent = query({
 });
 
 export const forShift = query({
-  args: { shiftId: v.string() },
+  args: { shiftId: v.id("shifts") },
   handler: async (ctx, args) => {
     const all = await ctx.db
       .query("events")

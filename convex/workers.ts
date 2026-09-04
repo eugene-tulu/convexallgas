@@ -44,6 +44,18 @@ export const addWorker = mutation({
       .withIndex("by_contact", (q) => q.eq("contact", args.contact))
       .unique();
     if (existing) {
+      // Do NOT silently reassign a worker to a different business. The contact
+      // uniquely identifies a person; if they belong to another business, the
+      // caller's businessId must match (or be empty, i.e. an admin upsert).
+      if (
+        existing.businessId &&
+        args.businessId &&
+        existing.businessId !== args.businessId
+      ) {
+        throw new Error(
+          `Worker ${args.contact} already belongs to a different business`
+        );
+      }
       await ctx.db.patch(existing._id, {
         name: args.name,
         businessId: args.businessId ?? existing.businessId,

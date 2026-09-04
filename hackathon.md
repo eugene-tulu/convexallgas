@@ -199,3 +199,38 @@ All run via `npx convex run` against `basic-hippopotamus-995`. Detailed evidence
 - **Old EIA tables** (`projects`, `obligations`, `documents`, `regulations`) are still in the schema (inferred) but empty. They were removed from the defined schema; if needed they can be re-deleted via the Convex dashboard or a one-off migration.
 - **Convex one-off MCP queries** (`convex_runOneoffQuery`) hang in this session — used the `npx convex run` / `npx convex data` CLI for all verification. Reconnect MCP if you want the live editor tools.
 - **Typecheck is disabled** for the deploy (`--typecheck=disable`). The `npx convex dev` TypeScript check trips on `TS2589: Type instantiation is excessively deep` from the union validators; the code is correct and runs at runtime, but to get a clean `tsc` pass the unions would need to be simplified (e.g. `v.string()` with runtime checks).
+
+### 2026-09-04 - reviewer fixes
+Applied all critical + high + most medium issues from a code review pass. Deployed clean; all verification tests still pass.
+
+**Critical**
+- `testActions.ts` — all helpers flipped to `internalAction` (no longer callable from the client).
+- `shiftsBridge.patchShift` — `v.any()` replaced with an explicit `shiftPatchValidator` (`status`, `timeoutAt`, `broadcastAt`, `broadcastRound`, `displayRate`, `displayRateLabel`, `confirmedAt`, `confirmedByResponseId` only). Strips `undefined` keys.
+- `repliesBridge.sendOptInInvite` — `process.env.CONVEX_SITE_URL` → `env.CONVEX_SITE_URL` from `./_generated/server` (declared in `convex.config.ts`).
+- `http.ts` — AgentMail webhook now requires `X-Proxy-Webhook-Secret` header matching the `AGENTMAIL_WEBHOOK_SECRET` env var when set. Unset in dev → still accepts (with a clear comment that production must set the secret).
+- `replies.ts` — all `as never` casts removed; the shift ID from the `[shift:<id>]` tag is now a real `Id<"shifts">` type.
+- `workers.addWorker` — refuses to silently reassign a worker to a different business; throws instead.
+
+**High**
+- `repliesQueries.shortlist` — N+1 fixed: workers are batch-loaded in one `db.query` with an `or` over all the response's workerIds, then indexed by `_id`.
+- `escalationBridge.findDueShifts` — `.slice(0, 50)` removed; query returns the full filtered set (no premature drop).
+- `repliesBridge.computeAndStoreRankScore` — new O(1) single-response ranker. `processBroadcastReply` calls it after `parse-reply` rather than re-scanning every response on every reply.
+- `escalationBridge.warmBackupPool` — switched from `firecrawl.crawl` on Indeed (brittle, ToS-adjacent) to `firecrawl.search` (SERP results, no bot blocking).
+- `llmTasks.safeJsonParse` — greedy `\{[\s\S]*\}` replaced with a bracket-balanced extractor (`extractFirstJsonObject`) that handles nested objects and string-literal braces.
+- `shiftsActions.broadcastShift` — sequential `for` loop replaced with `Promise.allSettled` so sends parallelize.
+
+**Medium**
+- `App.tsx` — `ShiftCard` typed as `Doc<"shifts">`; shortlist typed as a real `ShortlistRow`; `availableInternal` / `external` filters dropped their `(r: any)` annotations.
+- `businesses.createBusiness` — if `sourceUrl` is provided, scrapes + runs `extractBusinessProfile`; form values are the source of truth and the LLM only fills missing fields.
+- `replies.processBroadcastReply` — opt-in invite scheduling wrapped in its own try/catch; a scheduling failure no longer blocks the reply from being recorded.
+- `repliesBridge.countAvailableSince` — uses `q.gte("receivedAt", args.sinceBroadcastAt)` so the index does the work, not JS.
+- `mail.getOrCreateInbox` — inbox-create fallback narrowed to only fire on `403` / `missing_permission` / `409` / `already exists` errors. Network/5xx errors now re-throw.
+- `optInHttp` — `GET /opt-in?token=...` now returns a real HTML form (with "Opt in" / "No thanks" buttons) instead of JSON. Both form-encoded and JSON POSTs accepted.
+- `events.forShift` — `shiftId` is now `v.id("shifts")`, not `v.string()`.
+
+**Skipped (low priority for hackathon)**
+- Inline styles in `App.tsx` (works, not refactoring for a hackathon).
+- Loading skeletons (empty states are fine for a demo).
+- LLM rate limiting (would be straightforward via `@convex-dev/rate-limiter` for a real product).
+- Per-recipient single-email subtransactions in `sendConfirmAndRejects` (acceptable for small shortlists; if it becomes a bottleneck, batch via the AgentMail bulk-send API).
+- README (hackathon.md is the documentation; an actual product would have both).

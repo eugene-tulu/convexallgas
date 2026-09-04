@@ -60,21 +60,22 @@ export const broadcastShift = internalAction({
       recipientCount: recipients.length,
     });
 
-    let sentCount = 0;
-    const errors: string[] = [];
-    for (const r of recipients) {
-      try {
-        await ctx.runAction(internal.mailBridge.sendEmailAction, {
+    const results = await Promise.allSettled(
+      recipients.map((r) =>
+        ctx.runAction(internal.mailBridge.sendEmailAction, {
           inboxId: business.inboxId,
           to: r.contact,
           subject,
           text: body,
-        });
-        sentCount++;
-      } catch (e) {
-        errors.push(`${r.contact}: ${(e as Error).message}`);
-      }
-    }
+        })
+      )
+    );
+    let sentCount = 0;
+    const errors: string[] = [];
+    results.forEach((res, i) => {
+      if (res.status === "fulfilled") sentCount++;
+      else errors.push(`${recipients[i].contact}: ${(res.reason as Error).message}`);
+    });
 
     await ctx.runMutation(internal.eventsLog.logEvent, {
       table: "shifts",
