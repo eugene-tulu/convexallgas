@@ -147,36 +147,39 @@ export const testGeocodeSeedBusiness = internalAction({
 export const testLocalEventsTtl = internalAction({
   args: { businessId: v.id("businesses") },
   handler: async (ctx, args): Promise<unknown> => {
-    // Insert one stale (>3d old) and one fresh event.
-    const stale = await ctx.runMutation(internal.localEventsBridge.insertLocalEvent, {
+    // Insert one stale (>3d old) and one fresh event. Use unique
+    // sourceUrls per run so we don't conflict with previous runs of
+    // this test (which inserted under the same hardcoded URLs).
+    const runId = Math.random().toString(36).slice(2, 8);
+    const stale = (await ctx.runMutation(internal.localEventsBridge.upsertLocalEvent, {
       businessId: args.businessId,
       title: "Stale past event",
       description: "Already happened last week",
-      sourceUrl: "https://example.com/stale-event",
+      sourceUrl: `https://example.com/stale-event-${runId}`,
       venueText: "Old venue",
       lat: 37.3022,
       lng: -120.4829,
       fetchedAt: Date.now() - 4 * 24 * 60 * 60 * 1000,
-    });
-    const fresh = await ctx.runMutation(internal.localEventsBridge.insertLocalEvent, {
+    })) as { id: string; created: boolean };
+    const fresh = (await ctx.runMutation(internal.localEventsBridge.upsertLocalEvent, {
       businessId: args.businessId,
       title: "Fresh upcoming concert",
       description: "Friday night at the park",
-      sourceUrl: "https://example.com/fresh-event",
+      sourceUrl: `https://example.com/fresh-event-${runId}`,
       venueText: "Applegate Park, Merced",
       lat: 37.31,
       lng: -120.47,
       eventDate: Date.now() + 3 * 24 * 60 * 60 * 1000,
       fetchedAt: Date.now(),
-    });
+    })) as { id: string; created: boolean };
     const since = Date.now() - 3 * 24 * 60 * 60 * 1000;
     const visible = await ctx.runQuery(internal.localEventsBridge.recentForBusiness, {
       businessId: args.businessId,
       sinceFetchedAt: since,
     });
     return {
-      staleInserted: stale,
-      freshInserted: fresh,
+      stale,
+      fresh,
       visibleCount: visible.length,
       visibleTitles: visible.map((e) => e.title),
     };
@@ -217,5 +220,59 @@ export const testComposeRiskFlag = internalAction({
       nearbyEvents: events,
     })) as string;
     return { scenario: args.scenario, historical, events, riskFlag: text };
+  },
+});
+
+// Exercises the real risk-flag cache: invokes the internal action
+// `composeRiskFlag` (which does the real LLM + DB write) and reads the
+// cache back via `getCached` to confirm the upsert happened.
+export const testRiskFlagCache = internalAction({
+  args: { businessId: v.id("businesses") },
+  handler: async (ctx, args): Promise<unknown> => {
+    const written = (await ctx.runAction(internal.riskFlag.composeRiskFlag, {
+      businessId: args.businessId,
+    })) as string;
+    const cached = await ctx.runQuery(internal.riskFlagQueries.getCached, {
+      businessId: args.businessId,
+    });
+    return {
+      written,
+      cacheHit: !!cached,
+      computedAt: cached?.computedAt,
+      historicalSummary: cached?.historicalSummary,
+      nearbyEventTitles: cached?.nearbyEventTitles ?? [],
+      summary: cached?.summary,
+    };
+  },
+});
+
+export const testLocalEventsDedupe = internalAction({
+  args: { businessId: v.id("businesses") },
+  handler: async (ctx, args): Promise<unknown> => {
+    // Try to insert the same event twice; the second should be a no-op
+    // (created: false) and the row count should stay at 1.
+    const first = (await ctx.runMutation(internal.localEventsBridge.upsertLocalEvent, {
+      businessId: args.businessId,
+      title: "Dedupe test event",
+      description: "First insert",
+      sourceUrl: "https://example.com/dedupe-test",
+      venueText: "Some venue",
+      lat: 37.3,
+      lng: -120.5,
+      eventDate: Date.now() + 1 * 24 * 60 * 60 * 1000,
+      fetchedAt: Date.now(),
+    })) as { id: string; created: boolean };
+    const second = (await ctx.runMutation(internal.localEventsBridge.upsertLocalEvent, {
+      businessId: args.businessId,
+      title: "Dedupe test event (updated title)",
+      description: "Second insert should patch, not insert",
+      sourceUrl: "https://example.com/dedupe-test",
+      venueText: "Some venue (updated)",
+      lat: 37.31,
+      lng: -120.51,
+      eventDate: Date.now() + 1 * 24 * 60 * 60 * 1000,
+      fetchedAt: Date.now(),
+    })) as { id: string; created: boolean };
+    return { first, second, sameId: first.id === second.id };
   },
 });

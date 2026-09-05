@@ -16,7 +16,11 @@ export const listActiveBusinessIds = internalQuery({
   },
 });
 
-export const insertLocalEvent = internalMutation({
+// Dedupes by (businessId, sourceUrl). If a row already exists, refresh
+// its `fetchedAt` + any updated fields (title/description/venueText/geo/
+// eventDate) so the latest LLM/Nominatim pass wins. Otherwise insert.
+// Prevents unbounded table growth under the daily cron.
+export const upsertLocalEvent = internalMutation({
   args: {
     businessId: v.id("businesses"),
     title: v.string(),
@@ -28,8 +32,27 @@ export const insertLocalEvent = internalMutation({
     eventDate: v.optional(v.number()),
     fetchedAt: v.number(),
   },
-  handler: async (ctx, args): Promise<string> => {
-    return await ctx.db.insert("localEvents", args);
+  handler: async (ctx, args): Promise<{ id: string; created: boolean }> => {
+    const existing = await ctx.db
+      .query("localEvents")
+      .withIndex("by_businessId_sourceUrl", (q) =>
+        q.eq("businessId", args.businessId).eq("sourceUrl", args.sourceUrl)
+      )
+      .unique();
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        title: args.title,
+        description: args.description,
+        venueText: args.venueText,
+        lat: args.lat,
+        lng: args.lng,
+        eventDate: args.eventDate,
+        fetchedAt: args.fetchedAt,
+      });
+      return { id: existing._id, created: false };
+    }
+    const id = await ctx.db.insert("localEvents", args);
+    return { id, created: true };
   },
 });
 

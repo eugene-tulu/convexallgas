@@ -21,16 +21,10 @@ export default defineSchema({
     lat: v.optional(v.number()),
     lng: v.optional(v.number()),
     sourceUrl: v.optional(v.string()),
-    ownerUserId: v.optional(v.id("users")),
     inboxId: v.string(),
     inboxEmail: v.string(),
     createdAt: v.number(),
   }).index("by_inboxId", ["inboxId"]),
-
-  users: defineTable({
-    name: v.string(),
-    email: v.string(),
-  }).index("by_email", ["email"]),
 
   workers: defineTable({
     businessId: v.optional(v.id("businesses")),
@@ -70,10 +64,10 @@ export default defineSchema({
     broadcastRound: v.number(),
     confirmedAt: v.optional(v.number()),
     confirmedByResponseId: v.optional(v.id("responses")),
-    parentShiftId: v.optional(v.id("shifts")),
   })
     .index("by_businessId_status", ["businessId", "status"])
-    .index("by_timeoutAt_status", ["timeoutAt", "status"]),
+    .index("by_timeoutAt_status", ["timeoutAt", "status"])
+    .index("by_businessId_creationTime", ["businessId"]),
 
   responses: defineTable({
     shiftId: v.id("shifts"),
@@ -122,8 +116,9 @@ export default defineSchema({
 
   // Local events near a business (concerts, sports, conferences, etc.) that
   // plausibly raise call-out risk. Fetched daily via Firecrawl search +
-  // Nominatim geocode. Rows stay forever; the risk-flag query uses a
-  // `since` filter with a 3-day TTL so stale events don't keep scoring.
+  // Nominatim geocode. Deduped by (businessId, sourceUrl) so re-fetches
+  // upsert rather than append. The risk-flag query uses a 3-day TTL on
+  // `fetchedAt` so stale events don't keep scoring.
   localEvents: defineTable({
     businessId: v.id("businesses"),
     title: v.string(),
@@ -136,5 +131,18 @@ export default defineSchema({
     fetchedAt: v.number(),
   })
     .index("by_businessId_fetchedAt", ["businessId", "fetchedAt"])
+    .index("by_businessId_sourceUrl", ["businessId", "sourceUrl"])
     .index("by_businessId_eventDate", ["businessId", "eventDate"]),
+
+  // Cached risk-flag sentence per business. Recomputed on the daily
+  // local-events cron (and once at fetch-time when the historical signal
+  // changes) so the front-end never has to call the LLM. Front-end reads
+  // via a plain query.
+  riskFlags: defineTable({
+    businessId: v.id("businesses"),
+    summary: v.string(), // empty string = no signal worth surfacing
+    historicalSummary: v.string(),
+    nearbyEventTitles: v.array(v.string()),
+    computedAt: v.number(),
+  }).index("by_businessId", ["businessId"]),
 });

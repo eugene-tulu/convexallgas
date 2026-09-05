@@ -173,22 +173,12 @@ function PostShiftForm({ business, onSubmit, disabled, consentedCount }: { busin
     api.localEventsQueries.recentForBusiness,
     business.lat != null && business.lng != null ? { businessId: business._id } : "skip"
   );
-  const [riskFlag, setRiskFlag] = useState<string | null>(null);
-  const composeRiskFlag = useAction(api.riskFlag.composeRiskFlag);
-  useEffect(() => {
-    let cancelled = false;
-    setRiskFlag(null);
-    composeRiskFlag({ businessId: business._id })
-      .then((text) => {
-        if (!cancelled) setRiskFlag((text as string) || null);
-      })
-      .catch(() => {
-        if (!cancelled) setRiskFlag(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [business._id, composeRiskFlag]);
+  // Cached risk flag — recomputed by the daily local-events cron (and
+  // upserted into `riskFlags`), not on every render. Returns null while
+  // the cron hasn't run yet for this business, and the `summary` is the
+  // empty string when the LLM had no signal worth surfacing.
+  const cachedFlag = useQuery(api.riskFlagQueries.current, { businessId: business._id });
+  const riskFlag = cachedFlag?.summary || null;
 
   const hasGeo = business.lat != null && business.lng != null;
   const plottableEvents = (nearbyEvents ?? []).filter(

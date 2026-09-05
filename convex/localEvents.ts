@@ -8,11 +8,11 @@ const LOCAL_EVENTS_TTL_MS = 3 * 24 * 60 * 60 * 1000;
 
 export const fetchLocalEvents = internalAction({
   args: { businessId: v.id("businesses") },
-  handler: async (ctx, args): Promise<{ inserted: number; geocoded: number; skipped: number }> => {
+  handler: async (ctx, args): Promise<{ inserted: number; updated: number; geocoded: number; skipped: number }> => {
     const business = await ctx.runQuery(internal.localEventsBridge.getBusinessForEvents, {
       id: args.businessId,
     });
-    if (!business) return { inserted: 0, geocoded: 0, skipped: 0 };
+    if (!business) return { inserted: 0, updated: 0, geocoded: 0, skipped: 0 };
 
     const query = `events near ${business.location} this week`;
     let results: Array<{ title: string; url: string; description: string }> = [];
@@ -28,10 +28,11 @@ export const fetchLocalEvents = internalAction({
         action: "fetch_failed",
         summary: `Firecrawl search failed for "${query}": ${(e as Error).message}`,
       });
-      return { inserted: 0, geocoded: 0, skipped: 0 };
+      return { inserted: 0, updated: 0, geocoded: 0, skipped: 0 };
     }
 
     let inserted = 0;
+    let updated = 0;
     let geocoded = 0;
     let skipped = 0;
     const now = Date.now();
@@ -73,7 +74,7 @@ export const fetchLocalEvents = internalAction({
         skipped++;
       }
 
-      await ctx.runMutation(internal.localEventsBridge.insertLocalEvent, {
+      const upserted = await ctx.runMutation(internal.localEventsBridge.upsertLocalEvent, {
         businessId: args.businessId,
         title: r.title,
         description: r.description,
@@ -84,24 +85,26 @@ export const fetchLocalEvents = internalAction({
         eventDate: eventDate ?? undefined,
         fetchedAt: now,
       });
-      inserted++;
+      if (upserted.created) inserted++;
+      else updated++;
     }
 
     await ctx.runMutation(internal.eventsLog.logEvent, {
       table: "localEvents",
       rowId: args.businessId,
       action: "fetched",
-      summary: `Local-events fetch for "${business.location}": ${inserted} inserted, ${geocoded} geocoded, ${skipped} skipped (no venue)`,
+      summary: `Local-events fetch for "${business.location}": ${inserted} inserted, ${updated} updated, ${geocoded} geocoded, ${skipped} skipped (no venue)`,
     });
-    return { inserted, geocoded, skipped };
+    return { inserted, updated, geocoded, skipped };
   },
 });
 
 export const fetchAllLocalEvents = internalAction({
   args: {},
-  handler: async (ctx): Promise<{ businesses: number; inserted: number }> => {
+  handler: async (ctx): Promise<{ businesses: number; inserted: number; recomputed: number }> => {
     const ids = await ctx.runQuery(internal.localEventsBridge.listActiveBusinessIds, {});
     let totalInserted = 0;
+    let recomputed = 0;
     for (const id of ids) {
       // Space calls out to be polite to Nominatim (1 req/sec guideline).
       // We do this serially rather than in parallel.
@@ -110,7 +113,17 @@ export const fetchAllLocalEvents = internalAction({
       }
       const r = await ctx.runAction(internal.localEvents.fetchLocalEvents, { businessId: id });
       totalInserted += r.inserted;
+      // Recompute the cached risk flag for this business so the
+      // front-end sees fresh data without burning an LLM call per render.
+      try {
+        await ctx.runAction(internal.riskFlag.composeRiskFlag, { businessId: id });
+        recomputed++;
+      } catch (e) {
+        // Non-fatal — the local-events fetch result is the primary
+        // outcome; the risk flag will recompute on the next daily pass.
+        console.error(`risk flag recompute failed for ${id}: ${(e as Error).message}`);
+      }
     }
-    return { businesses: ids.length, inserted: totalInserted };
+    return { businesses: ids.length, inserted: totalInserted, recomputed };
   },
 });

@@ -341,3 +341,94 @@ geocoding or maps.
 - The previously-existing tests still pass: `testConsentFilter` (3
   consented / 1 non-consented), `testBackupPoolTtl`, race approve,
   parse_failed path.
+
+### 2026-09-05 - reviewer fixes (6 items, A- → A+)
+
+Followed the reviewer's "fix these six for A+" list. Skipped the lower-
+priority items (3.7/3.8/4.3-4.8/5.x) which they correctly framed as
+"scaling and security surface, not structural flaws" — would address on
+the path to production, not for a hackathon.
+
+**3.1+3.2 — dead schema removed.**
+- Deleted `users` table and `businesses.ownerUserId` (no auth in this
+  build, no callers). The deploy log confirmed the index
+  `users.by_email` was dropped automatically.
+- Deleted `shifts.parentShiftId` (no callers).
+- Removed `businessesQueries.ensureDemoUser` (only touched `users`).
+
+**3.5 — `getHistoricalSummary` no longer loads all shifts.**
+- New `by_businessId_creationTime` index on `shifts`. Convex
+  auto-appends `_creationTime` to index fields, so the index definition
+  is just `["businessId"]` and the query does
+  `.withIndex("by_businessId_creationTime", (q) => q.eq("businessId", ...).gte("_creationTime", since))`.
+- For 1,000 shifts on a business the query now reads only the last 30
+  days via an index range scan instead of a `.collect()` + JS filter.
+
+**3.6 — `localEvents` deduped by `sourceUrl`.**
+- New `by_businessId_sourceUrl` index on `localEvents`.
+- Replaced `insertLocalEvent` with `upsertLocalEvent`: queries
+  `(businessId, sourceUrl)`, patches the existing row's
+  `title/description/venueText/lat/lng/eventDate/fetchedAt` if found,
+  otherwise inserts. Returns `{ id, created: boolean }`.
+- `localEvents.fetchLocalEvents` now reports both `inserted` and
+  `updated` counts in the return + `events` log so the demo can show
+  the dedupe at work.
+- `testLocalEventsDedupe` confirms: first upsert `created: true`,
+  second upsert with the same URL `created: false`, same `_id`.
+
+**3.3+3.4 — risk flag cached, not LLM-on-every-render.**
+- New `riskFlags` table: `{ businessId, summary, historicalSummary,
+  nearbyEventTitles, computedAt }` with `by_businessId` index.
+- `composeRiskFlag` is now `internalAction` (was public). Same body
+  shape, but it now `upsert`s the result into `riskFlags` and returns
+  the cached `summary`. Not callable from the client.
+- New public `riskFlag.refresh` action wraps the internal one for the
+  rare "force a recompute" case (e.g. right after a manager escalates
+  a shift and the historical signal just changed). Front-end does not
+  call it on every render.
+- New public query `riskFlagQueries.current` returns
+  `{ summary, historicalSummary, nearbyEventTitles, computedAt, stale }`
+  (where `stale` is true after the 24h TTL). Front-end reads this on
+  every render — no LLM call.
+- `localEvents.fetchAllLocalEvents` (the daily cron) now also calls
+  `composeRiskFlag` per business after the events fetch, so the cache
+  is always fresh daily.
+- Front-end: `PostShiftForm` now uses
+  `useQuery(api.riskFlagQueries.current, { businessId })` and
+  `riskFlag = cachedFlag?.summary || null`. Replaced
+  `useAction(composeRiskFlag)` + `useEffect` that fired on every mount.
+  A manager clicking around the UI no longer burns an LLM call per
+  click.
+- `testRiskFlagCache` confirms: invokes the internal action, then
+  reads the cache via `getCached` — `cacheHit: true`, `summary` matches
+  the action's return value, `historicalSummary` populated from the
+  indexed query, `nearbyEventTitles` populated from the deduped
+  events.
+
+**4.1 — Nominatim User-Agent now uses `CONVEX_SITE_URL`.**
+- `convex.config.ts` declares `CONVEX_SITE_URL: v.optional(v.string())`
+  (was already a platform-provided env var; declared for clarity).
+- `geocode.ts`'s `userAgent()` reads `env.CONVEX_SITE_URL`. If set, the
+  UA is `Proxy/0.1 (hackathon demo; https://<deployment>.convex.site)`
+  — the contact URL stays current across deploys. If unset, falls back
+  to a non-URL contact string so Nominatim's policy check doesn't
+  break, with a console.warn so it's not silent.
+
+**4.2 — opt-in magic link throws if `CONVEX_SITE_URL` missing.**
+- `repliesBridge.sendOptInInvite` no longer has a hardcoded fallback.
+  If `env.CONVEX_SITE_URL` is unset, the mutation throws with a clear
+  "run `npx convex env set CONVEX_SITE_URL ...`" message instead of
+  silently sending workers a broken link.
+
+**Verification**
+- `tsc --noEmit` clean. `npx convex dev` deploys clean. `npx vite build`
+  succeeds (map still code-splits cleanly).
+- `testConsentFilter`: 3 consented / 1 non-consented. `testBackupPoolTtl`:
+  25h-old entry invisible, fresh one visible. `testLocalEventsTtl`:
+  4d-old entry invisible, fresh one visible. `testLocalEventsDedupe`:
+  first `created: true`, second `created: false` same id.
+  `testRiskFlagCache`: cache hit, summary matches, populated from the
+  indexed query + deduped events.
+- All 4 `testComposeRiskFlag` scenarios still produce sensible output.
+- Geocode works against `San Francisco, CA` (37.79, -122.41) using the
+  env-driven UA. 10s `AbortController` timeout in place.

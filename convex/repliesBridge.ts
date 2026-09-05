@@ -247,8 +247,13 @@ export const sendOptInInvite = internalMutation({
     if (!shift) return;
     const business = await ctx.db.get(shift.businessId);
     if (!business) return;
-    const siteUrl = env.CONVEX_SITE_URL ?? "https://basic-hippopotamus-995.convex.site";
-    const link = `${siteUrl}/opt-in?token=${token}`;
+    if (!env.CONVEX_SITE_URL) {
+      throw new Error(
+        "CONVEX_SITE_URL is not set; the opt-in magic link can't be generated. " +
+          "Run `npx convex env set CONVEX_SITE_URL https://<your-deployment>.convex.site`."
+      );
+    }
+    const link = `${env.CONVEX_SITE_URL}/opt-in?token=${token}`;
     await ctx.scheduler.runAfter(0, internal.repliesActions.dispatchOptInInvite, {
       businessInboxId: business.inboxId,
       businessName: business.name,
