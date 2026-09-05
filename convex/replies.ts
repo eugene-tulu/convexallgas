@@ -1,7 +1,7 @@
 "use node";
 import { v } from "convex/values";
 import { internalAction } from "./_generated/server";
-import { internal } from "./_generated/api";
+import { internal, api } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 
 const SHIFT_TAG_RE = /\[shift:([a-zA-Z0-9_-]+)\]/;
@@ -32,7 +32,7 @@ export const processBroadcastReply = internalAction({
     text: v.string(),
     html: v.optional(v.string()),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<{ processed: boolean; reason?: string; responseId?: unknown }> => {
     const subjectTag = args.subject.match(SHIFT_TAG_RE);
     const textTag = (args.text ?? "").match(SHIFT_TAG_RE);
     const htmlTag = (args.html ?? "").match(SHIFT_TAG_RE);
@@ -109,7 +109,7 @@ export const processBroadcastReply = internalAction({
       summary: `Reply from ${args.from} on shift ${shift._id} (round ${shift.broadcastRound})`,
     });
 
-    const parsed = (await ctx.runAction(internal.llmTasks.parseReply, {
+    const parsed = (await ctx.runAction(api.llmTasks.parseReply, {
       rawReplyText: text,
       role: shift.role,
       startTime: shift.startTime,

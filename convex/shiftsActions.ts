@@ -1,7 +1,7 @@
 "use node";
 import { v } from "convex/values";
 import { internalAction } from "./_generated/server";
-import { internal } from "./_generated/api";
+import { internal, api } from "./_generated/api";
 import { urgencyTimeoutMs } from "./shifts";
 
 export const broadcastShift = internalAction({
@@ -50,7 +50,7 @@ export const broadcastShift = internalAction({
     const subject = `[shift:${shift._id}] ${shift.role} call-out — ${new Date(
       shift.startTime
     ).toLocaleString()}`;
-    const body = await ctx.runAction(internal.llmTasks.draftBroadcastEmail, {
+    const body = (await ctx.runAction(api.llmTasks.draftBroadcastEmail, {
       role: shift.role,
       startTime: shift.startTime,
       urgency: shift.urgency,
@@ -58,7 +58,7 @@ export const broadcastShift = internalAction({
       displayRateLabel: shift.displayRateLabel,
       businessName: business.name,
       recipientCount: recipients.length,
-    });
+    })) as string;
 
     const results = await Promise.allSettled(
       recipients.map((r) =>

@@ -13,7 +13,7 @@ export const simulateReply = internalAction({
     from: v.string(),
     text: v.string(),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<unknown> => {
     return await ctx.runAction(internal.replies.processBroadcastReply, {
       inboxId: args.inboxId,
       messageId: args.messageId,
@@ -27,7 +27,7 @@ export const simulateReply = internalAction({
 
 export const triggerEscalation = internalAction({
   args: { shiftId: v.id("shifts") },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<unknown> => {
     return await ctx.runAction(internal.escalationBridge.runEscalationSearch, {
       shiftId: args.shiftId,
     });
@@ -36,14 +36,14 @@ export const triggerEscalation = internalAction({
 
 export const triggerEscalationCron = internalAction({
   args: {},
-  handler: async (ctx) => {
+  handler: async (ctx): Promise<unknown> => {
     return await ctx.runAction(internal.escalation.checkEscalations, {});
   },
 });
 
 export const raceApprove = internalAction({
   args: { shiftId: v.id("shifts"), responseId: v.id("responses") },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<unknown> => {
     const promises: Promise<unknown>[] = [];
     for (let i = 0; i < 5; i++) {
       promises.push(
@@ -59,7 +59,7 @@ export const raceApprove = internalAction({
 
 export const testConsentFilter = internalAction({
   args: { businessId: v.id("businesses") },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<unknown> => {
     const consented = await ctx.runQuery(internal.workersBridge.listConsentedForBusiness, {
       businessId: args.businessId,
     });
@@ -77,7 +77,7 @@ export const testConsentFilter = internalAction({
 
 export const testBackupPoolTtl = internalAction({
   args: { businessId: v.id("businesses") },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<unknown> => {
     const staleId: string = await ctx.runMutation(
       internal.escalationBridge.insertPoolEntry,
       {

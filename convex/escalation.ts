@@ -1,12 +1,12 @@
 "use node";
 import { internalAction, internalMutation } from "./_generated/server";
-import { internal } from "./_generated/api";
+import { internal, api } from "./_generated/api";
 import { v } from "convex/values";
 import { urgencyTimeoutMs } from "./shifts";
 
 export const checkEscalations = internalAction({
   args: {},
-  handler: async (ctx) => {
+  handler: async (ctx): Promise<{ checked: number }> => {
     const now = Date.now();
     const due = await ctx.runQuery(internal.escalationBridge.findDueShifts, { now });
     for (const shift of due) {
@@ -66,7 +66,7 @@ export const findExternalCandidates = internalAction({
     const query = `${shift.role} jobs near ${business.location}`;
     let results: { title: string; url: string; description: string }[] = [];
     try {
-      results = (await ctx.runAction(internal.firecrawl.search, {
+      results = (await ctx.runAction(api.firecrawl.search, {
         query,
         limit: 10,
       })) as { title: string; url: string; description: string }[];

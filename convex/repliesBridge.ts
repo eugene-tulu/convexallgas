@@ -16,7 +16,9 @@ export const insertResponse = internalMutation({
     workerId: v.optional(v.id("workers")),
     rawReplyText: v.string(),
     agentmailMessageId: v.string(),
-    source: v.union(v.literal("internal"), v.literal("external")),
+    // `v.string()` (not a 2-literal union) to keep generic depth shallow;
+    // the schema's `responses.source` column still validates the stored shape.
+    source: v.string(),
   },
   handler: async (ctx, args) => {
     const dedupe = await ctx.db
@@ -32,7 +34,7 @@ export const insertResponse = internalMutation({
       workerId: args.workerId,
       rawReplyText: args.rawReplyText,
       agentmailMessageId: args.agentmailMessageId,
-      source: args.source,
+      source: args.source as "internal" | "external",
       receivedAt: Date.now(),
     });
     return { responseId: id, deduped: false };
@@ -186,7 +188,7 @@ export const sendOneEmail = internalMutation({
   args: {
     responseId: v.id("responses"),
     workerContact: v.string(),
-    kind: v.union(v.literal("confirm"), v.literal("reject")),
+    kind: v.string(),
   },
   handler: async (ctx, args) => {
     const r = await ctx.db.get(args.responseId);

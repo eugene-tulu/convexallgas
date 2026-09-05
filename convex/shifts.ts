@@ -9,6 +9,8 @@ export const URGENCY_TIMEOUTS_MS: Record<string, number> = {
   low: 20 * 60 * 1000,
 };
 
+const URGENCIES = new Set(Object.keys(URGENCY_TIMEOUTS_MS));
+
 export function urgencyTimeoutMs(urgency: string): number {
   return URGENCY_TIMEOUTS_MS[urgency] ?? URGENCY_TIMEOUTS_MS.normal;
 }
@@ -18,17 +20,18 @@ export const postShift = mutation({
     businessId: v.id("businesses"),
     role: v.string(),
     startTime: v.number(),
-    urgency: v.union(
-      v.literal("critical"),
-      v.literal("urgent"),
-      v.literal("normal"),
-      v.literal("low")
-    ),
+    // `v.string()` (not a 4-literal union) to keep the Convex validator's
+    // generic depth shallow. The runtime check below + the schema's typed
+    // `shifts.urgency` column still constrain the value.
+    urgency: v.string(),
     displayRate: v.number(),
     displayRateLabel: v.string(),
     workerIds: v.optional(v.array(v.id("workers"))),
   },
   handler: async (ctx, args) => {
+    if (!URGENCIES.has(args.urgency)) {
+      throw new Error(`Invalid urgency: ${args.urgency}`);
+    }
     const business = await ctx.db.get(args.businessId);
     if (!business) throw new Error("Business not found");
     const timeoutAt = Date.now() + urgencyTimeoutMs(args.urgency);
@@ -36,7 +39,7 @@ export const postShift = mutation({
       businessId: args.businessId,
       role: args.role,
       startTime: args.startTime,
-      urgency: args.urgency,
+      urgency: args.urgency as "critical" | "urgent" | "normal" | "low",
       status: "broadcasting",
       timeoutAt,
       displayRate: args.displayRate,

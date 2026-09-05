@@ -5,7 +5,7 @@ import { internal } from "./_generated/api";
 
 export const runSeed = action({
   args: {},
-  handler: async (ctx) => {
+  handler: async (ctx): Promise<unknown> => {
     return await ctx.runAction(internal.seed.seedDemo, {});
   },
 });

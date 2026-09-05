@@ -8,16 +8,20 @@ export const getShift = internalQuery({
   },
 });
 
+// `status` is typed as a plain `v.string()` here (not the schema's literal
+// union) to keep the Convex validator's generic depth shallow. The runtime
+// check below enforces the same set of literals callers can pass. The schema
+// itself still validates the column's data type.
+const SHIFT_STATUSES = new Set([
+  "broadcasting",
+  "shortlist_ready",
+  "escalating",
+  "confirmed",
+  "cancelled",
+]);
+
 const shiftPatchValidator = v.object({
-  status: v.optional(
-    v.union(
-      v.literal("broadcasting"),
-      v.literal("shortlist_ready"),
-      v.literal("escalating"),
-      v.literal("confirmed"),
-      v.literal("cancelled")
-    )
-  ),
+  status: v.optional(v.string()),
   timeoutAt: v.optional(v.number()),
   broadcastAt: v.optional(v.number()),
   broadcastRound: v.optional(v.number()),
@@ -37,6 +41,9 @@ export const patchShift = internalMutation({
     const clean: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(args.patch)) {
       if (v !== undefined) clean[k] = v;
+    }
+    if (typeof clean.status === "string" && !SHIFT_STATUSES.has(clean.status)) {
+      throw new Error(`Invalid shift status: ${clean.status}`);
     }
     await ctx.db.patch(args.id, clean);
   },

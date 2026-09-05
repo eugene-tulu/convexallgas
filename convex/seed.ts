@@ -5,7 +5,7 @@ import { internal, api } from "./_generated/api";
 
 export const seedDemo = internalAction({
   args: {},
-  handler: async (ctx) => {
+  handler: async (ctx): Promise<unknown> => {
     const existingBiz = await ctx.runQuery(internal.seedBridge.findBusinessByName, {
       name: "Merced Coffee Co.",
     });
@@ -99,7 +99,7 @@ export const seedDemo = internalAction({
 
 export const listSeed = internalAction({
   args: {},
-  handler: async (ctx) => {
+  handler: async (ctx): Promise<unknown> => {
     return await ctx.runQuery(internal.seedBridge.listSeed, {});
   },
 });

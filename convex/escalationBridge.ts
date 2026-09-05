@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { internalAction, internalMutation, internalQuery } from "./_generated/server";
-import { internal } from "./_generated/api";
+import { internal, api } from "./_generated/api";
 
 export const findDueShifts = internalQuery({
   args: { now: v.number() },
@@ -29,7 +29,7 @@ export const markEscalating = internalMutation({
 
 export const runEscalationSearch = internalAction({
   args: { shiftId: v.id("shifts") },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<unknown> => {
     return await ctx.runAction(internal.escalation.findExternalCandidates, {
       shiftId: args.shiftId,
     });
@@ -58,7 +58,7 @@ export const warmBackupPool = internalAction({
     // without scraping the page.
     let results: { title: string; url: string; description: string }[] = [];
     try {
-      results = (await ctx.runAction(internal.firecrawl.search, {
+      results = (await ctx.runAction(api.firecrawl.search, {
         query,
         limit: 10,
       })) as { title: string; url: string; description: string }[];

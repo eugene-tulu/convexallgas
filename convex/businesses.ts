@@ -1,7 +1,7 @@
 "use node";
 import { v } from "convex/values";
 import { action } from "./_generated/server";
-import { internal } from "./_generated/api";
+import { internal, api } from "./_generated/api";
 
 export const createBusiness = action({
   args: {
@@ -12,7 +12,7 @@ export const createBusiness = action({
     location: v.string(),
     sourceUrl: v.optional(v.string()),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<{ businessId: string; inboxId: string; inboxEmail: string }> => {
     const slug =
       args.name
         .toLowerCase()
@@ -35,11 +35,11 @@ export const createBusiness = action({
     let sizeSignal = args.sizeSignal ?? "";
     if (args.sourceUrl) {
       try {
-        const scraped = (await ctx.runAction(internal.firecrawl.scrape, {
+        const scraped = (await ctx.runAction(api.firecrawl.scrape, {
           url: args.sourceUrl,
         })) as { markdown: string };
         if (scraped.markdown) {
-          const profile = (await ctx.runAction(internal.llmTasks.extractBusinessProfile, {
+          const profile = (await ctx.runAction(api.llmTasks.extractBusinessProfile, {
             markdown: scraped.markdown,
             businessName: args.name,
             city: args.location,

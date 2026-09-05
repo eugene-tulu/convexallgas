@@ -10,7 +10,7 @@ export const runLlmTaskRaw = internalAction({
     model: v.optional(v.string()),
     temperature: v.optional(v.number()),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<unknown> => {
     return await ctx.runAction(api.llm.runLlmTask, args);
   },
 });

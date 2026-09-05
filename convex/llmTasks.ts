@@ -62,7 +62,7 @@ export const extractBusinessProfile = action({
     businessName: v.string(),
     city: v.string(),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<unknown> => {
     const systemPrompt =
       "You extract a structured business profile from web content. Return ONLY valid JSON matching the schema. Do not include markdown fences or commentary.";
     const userPrompt = `Extract a business profile for "${args.businessName}" in ${args.city} from the following content.
@@ -81,10 +81,10 @@ Content:
 ${args.markdown.slice(0, 8000)}
 """`;
 
-    const raw = await ctx.runAction(internal.llmTaskBridge.runLlmTaskRaw, {
+    const raw = (await ctx.runAction(internal.llmTaskBridge.runLlmTaskRaw, {
       prompt: userPrompt,
       systemPrompt,
-    });
+    })) as string;
     const parsed = safeJsonParse<{
       name: string;
       category: string;
@@ -115,7 +115,7 @@ export const draftBroadcastEmail = action({
     businessName: v.string(),
     recipientCount: v.number(),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<unknown> => {
     const systemPrompt = `You draft short, warm, plain-language email bodies for a shift call-out.
 Rules:
 - Address the worker by nothing specific (no fake names).
@@ -160,7 +160,7 @@ export const draftConfirmEmail = action({
     startTime: v.number(),
     businessName: v.string(),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<unknown> => {
     const systemPrompt = `You draft a short, warm, human email confirming a worker got the shift.
 Rules:
 - Sound like a relieved coworker, not a system notification.
@@ -190,7 +190,7 @@ export const draftRejectEmail = action({
     role: v.string(),
     businessName: v.string(),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<unknown> => {
     const systemPrompt = `You draft a short, warm, human email to a worker who replied but didn't get the shift.
 Rules:
 - Sound like a grateful coworker, not a system notification.
@@ -214,7 +214,7 @@ export const parseReply = action({
     startTime: v.number(),
     shiftId: v.string(),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<unknown> => {
     const systemPrompt = `You parse a free-text reply to a shift call-out and return structured availability.
 Return ONLY valid JSON, no markdown fences, no commentary.`;
     const startStr = new Date(args.startTime).toLocaleString("en-US", {
@@ -240,16 +240,16 @@ Return JSON of shape:
   "reasons": string            // one short sentence explaining the call (kept for the manager to see)
 }`;
 
-    const raw = await ctx.runAction(internal.llmTaskBridge.runLlmTaskRaw, {
+    const raw = (await ctx.runAction(internal.llmTaskBridge.runLlmTaskRaw, {
       prompt: userPrompt,
       systemPrompt,
-    });
+    })) as string;
     const parsed = safeJsonParse<{
       available: boolean;
       constraints: string;
       confidence: number;
       reasons: string;
-    }>(raw);
+    }>(raw as string);
     if (!parsed.ok) {
       await ctx.runMutation(internal.eventsLog.logEvent, {
         table: "responses",
