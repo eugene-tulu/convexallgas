@@ -10,14 +10,18 @@
     "convex": "convex"
   },
   "dependencies": {
+    "@x402/fetch": "^2.25.0",
     "agentmail": "^0.5.21",
     "convex": "^1.45.0",
     "firecrawl": "^4.38.0",
+    "leaflet": "^1.9.4",
     "openai": "^7.8.0",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "react-leaflet": "^5.0.0"
   },
   "devDependencies": {
+    "@types/leaflet": "^1.9.12",
     "@types/node": "^26.4.1",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",

@@ -18,11 +18,24 @@ export const insertBusiness = internalMutation({
     sourceUrl: v.string(),
     inboxId: v.string(),
     inboxEmail: v.string(),
+    lat: v.optional(v.number()),
+    lng: v.optional(v.number()),
   },
   handler: async (ctx, args): Promise<string> => {
     return await ctx.db.insert("businesses", {
       ...args,
       createdAt: Date.now(),
     });
+  },
+});
+
+export const patchBusinessGeocode = internalMutation({
+  args: {
+    id: v.id("businesses"),
+    lat: v.number(),
+    lng: v.number(),
+  },
+  handler: async (ctx, args): Promise<void> => {
+    await ctx.db.patch(args.id, { lat: args.lat, lng: args.lng });
   },
 });

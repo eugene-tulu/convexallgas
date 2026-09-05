@@ -115,6 +115,7 @@ export default function App() {
 function ShiftsTab({ businessId }: { businessId: Id<"businesses"> }) {
   const shifts = useQuery(api.shifts.list, { businessId }) ?? [];
   const workers = useQuery(api.workers.list, { businessId }) ?? [];
+  const business = useQuery(api.businessesQueries.get, { id: businessId });
   const postShift = useMutation(api.shifts.postShift);
   const rebroadcast = useMutation(api.shifts.rebroadcastShift);
   const [creating, setCreating] = useState(false);
@@ -138,30 +139,61 @@ function ShiftsTab({ businessId }: { businessId: Id<"businesses"> }) {
       <div>
         <div style={{ background: "white", borderRadius: 8, padding: 16, position: "sticky", top: 16 }}>
           <h3 style={{ margin: "0 0 8px", fontSize: 15 }}>Post a call-out</h3>
-          <PostShiftForm
-            disabled={creating}
-            onSubmit={async (data) => {
-              setCreating(true);
-              try {
-                await postShift({ businessId, ...data });
-              } finally {
-                setCreating(false);
-              }
-            }}
-            consentedCount={workers.filter((w) => w.consent).length}
-          />
+          {business ? (
+            <PostShiftForm
+              business={business}
+              disabled={creating}
+              onSubmit={async (data) => {
+                setCreating(true);
+                try {
+                  await postShift({ businessId, ...data });
+                } finally {
+                  setCreating(false);
+                }
+              }}
+              consentedCount={workers.filter((w) => w.consent).length}
+            />
+          ) : (
+            <p style={{ color: "#6b7280", fontSize: 12 }}>Loading business…</p>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-function PostShiftForm({ onSubmit, disabled, consentedCount }: { onSubmit: (d: { role: string; startTime: number; urgency: "critical" | "urgent" | "normal" | "low"; displayRate: number; displayRateLabel: string }) => void; disabled: boolean; consentedCount: number }) {
+function PostShiftForm({ business, onSubmit, disabled, consentedCount }: { business: Doc<"businesses">; onSubmit: (d: { role: string; startTime: number; urgency: "critical" | "urgent" | "normal" | "low"; displayRate: number; displayRateLabel: string }) => void; disabled: boolean; consentedCount: number }) {
   const [role, setRole] = useState("barista");
   const [urgency, setUrgency] = useState<"critical" | "urgent" | "normal" | "low">("urgent");
   const [displayRate, setDisplayRate] = useState(22);
   const [label, setLabel] = useState("/hr");
   const [startTimeOffset, setStartTimeOffset] = useState(60);
+
+  const nearbyEvents = useQuery(
+    api.localEventsQueries.recentForBusiness,
+    business.lat != null && business.lng != null ? { businessId: business._id } : "skip"
+  );
+  const [riskFlag, setRiskFlag] = useState<string | null>(null);
+  const composeRiskFlag = useAction(api.riskFlag.composeRiskFlag);
+  useEffect(() => {
+    let cancelled = false;
+    setRiskFlag(null);
+    composeRiskFlag({ businessId: business._id })
+      .then((text) => {
+        if (!cancelled) setRiskFlag((text as string) || null);
+      })
+      .catch(() => {
+        if (!cancelled) setRiskFlag(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [business._id, composeRiskFlag]);
+
+  const hasGeo = business.lat != null && business.lng != null;
+  const plottableEvents = (nearbyEvents ?? []).filter(
+    (e: { lat?: number; lng?: number }) => e.lat != null && e.lng != null
+  );
 
   return (
     <form
@@ -171,6 +203,29 @@ function PostShiftForm({ onSubmit, disabled, consentedCount }: { onSubmit: (d: {
       }}
       style={{ display: "grid", gap: 8 }}
     >
+      {riskFlag && (
+        <div
+          data-testid="risk-flag"
+          style={{
+            padding: "8px 10px",
+            background: "#fef3c7",
+            color: "#92400e",
+            borderRadius: 6,
+            fontSize: 12,
+            lineHeight: 1.4,
+          }}
+        >
+          {riskFlag}
+        </div>
+      )}
+      {hasGeo && plottableEvents.length > 0 && (
+        <LocalEventsMap
+          lat={business.lat as number}
+          lng={business.lng as number}
+          businessName={business.name}
+          events={plottableEvents as Array<{ _id: string; title: string; lat: number; lng: number; venueText?: string }>}
+        />
+      )}
       <Field label="Role">
         <input value={role} onChange={(e) => setRole(e.target.value)} style={input} />
       </Field>
@@ -203,6 +258,82 @@ function PostShiftForm({ onSubmit, disabled, consentedCount }: { onSubmit: (d: {
         {disabled ? "Posting…" : "Post + broadcast"}
       </button>
     </form>
+  );
+}
+
+function LocalEventsMap({
+  lat,
+  lng,
+  businessName,
+  events,
+}: {
+  lat: number;
+  lng: number;
+  businessName: string;
+  events: Array<{ _id: string; title: string; lat: number; lng: number; venueText?: string }>;
+}) {
+  // Lazy-load the map so the bundle stays light and SSR-style rendering
+  // (if we add it later) doesn't trip on `window`. We type the components
+  // loosely to avoid the React 19 / react-leaflet 5 generic-typing churn.
+  const [Map, setMap] = useState<React.ComponentType<any> | null>(null);
+  const [TileLayer, setTileLayer] = useState<React.ComponentType<any> | null>(null);
+  const [Marker, setMarker] = useState<React.ComponentType<any> | null>(null);
+  const [Popup, setPopup] = useState<React.ComponentType<any> | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const [{ MapContainer, TileLayer: TL, Marker: M, Popup: P }, L] = await Promise.all([
+        import("react-leaflet"),
+        import("leaflet"),
+      ]);
+      await import("leaflet/dist/leaflet.css");
+      if (cancelled) return;
+      // Default marker icons come from a path that breaks under bundlers.
+      // Re-point them at the CDN copies so pins actually render.
+      const iconRetinaUrl = "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png";
+      const iconUrl = "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png";
+      const shadowUrl = "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png";
+      L.Icon.Default.mergeOptions({ iconRetinaUrl, iconUrl, shadowUrl });
+      setMap(() => MapContainer);
+      setTileLayer(() => TL);
+      setMarker(() => M);
+      setPopup(() => P);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (!Map || !TileLayer || !Marker || !Popup) {
+    return (
+      <div
+        data-testid="local-events-map-loading"
+        style={{ height: 160, borderRadius: 6, background: "#f3f4f6", color: "#6b7280", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center" }}
+      >
+        Loading map…
+      </div>
+    );
+  }
+  return (
+    <div data-testid="local-events-map" style={{ borderRadius: 6, overflow: "hidden", border: "1px solid #e5e7eb" }}>
+      <Map center={[lat, lng]} zoom={12} style={{ height: 160, width: "100%" }}>
+        <TileLayer
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+        />
+        <Marker position={[lat, lng]}>
+          <Popup>{businessName}</Popup>
+        </Marker>
+        {events.map((e) => (
+          <Marker key={e._id} position={[e.lat, e.lng]}>
+            <Popup>
+              <strong>{e.title}</strong>
+              {e.venueText ? <div style={{ fontSize: 12 }}>{e.venueText}</div> : null}
+            </Popup>
+          </Marker>
+        ))}
+      </Map>
+    </div>
   );
 }
 

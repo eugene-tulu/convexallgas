@@ -251,3 +251,93 @@ Two changes broke the chain:
 Also fixed a pre-existing bug exposed by the re-typecheck: I was calling `internal.firecrawl.scrape`, `internal.llmTasks.draftBroadcastEmail`, etc. — but those modules export public actions, so the references should have been `api.firecrawl.scrape`, `api.llmTasks.draftBroadcastEmail`. They worked at runtime because the deployment was happening with `--typecheck=disable`, but they would have errored loudly on a clean typecheck. Now `internal.mail.fetchMessage` is the only `internal.X.X` reference for the LLM/mail bridges (which is correct — `fetchMessage` is genuinely internal).
 
 Result: `npx tsc --noEmit` passes with zero errors, and `npx convex dev` (interactive, with typecheck enabled) deploys cleanly. No more `--typecheck=disable` flag needed. Re-verified the full end-to-end loop on a fresh shift (post → broadcast → 2 replies → race approve → 1 confirmed + 4 lost_race + 4 lost_race events).
+
+### 2026-09-05 - local-event risk context + map (extension)
+
+Extension of the existing risk-flag feature, not a new pivot. Adds a
+geography-aware second signal (nearby events that plausibly raise call-out
+risk) and a small map next to the risk-flag line. Explicitly out of scope
+(per the build prompt): weather APIs, competitor-busy tracking, paid
+geocoding or maps.
+
+**Backend additions**
+- Schema: `businesses` got `lat`/`optional` and `lng`/`optional` (geocoded at
+  onboarding). New `localEvents` table: `{ businessId, title, description,
+  sourceUrl, venueText?, lat?, lng?, eventDate?, fetchedAt }` with two
+  indexes — `by_businessId_fetchedAt` (for the TTL-filtered risk query) and
+  `by_businessId_eventDate` (for the map's optional date sort later).
+- `convex/geocode.ts` — Nominatim wrapper. Sets a real `User-Agent` per
+  their usage policy, returns `null` on any failure (network, 404, empty
+  result) so callers can log `geocode_failed` and continue without
+  coordinates.
+- `createBusiness` (in `businesses.ts`) now geocodes the `location` string
+  after the existing scrape/extract step and patches `lat`/`lng` via
+  `businessesBridge.patchBusinessGeocode`. Non-fatal on failure (same
+  pattern as the existing scrape-failure handling).
+- `convex/localEvents.ts` + `convex/localEventsBridge.ts` +
+  `convex/localEventsQueries.ts` — actions/mutations/queries. The action
+  `fetchLocalEvents(businessId)` builds a query like `"events near
+  {location} this week"`, calls `firecrawl.search`, and for each result
+  asks `extractEventVenue` (a new LLM task) to pull a venue/date. Each
+  venue is then geocoded via the same Nominatim helper. Events that fail
+  to geocode are still inserted — they still count for the text risk
+  flag, just don't plot on the map.
+- New daily cron `fetch local events` (24h interval) calls
+  `fetchAllLocalEvents` which serializes the per-business fetches with a
+  1.1s sleep between them, per Nominatim's "max 1 req/sec" guideline.
+- New LLM task `extractEventVenue` (returns `{ venueText: string|null,
+  eventDate: number|null }`) and `draftRiskFlag` (the combined sentence).
+  `draftRiskFlag` accepts the historical-summary string + an optional
+  array of nearby events and produces one sentence that:
+    - weaves both signals into one sentence when both present,
+    - writes a one-signal sentence when only one is present,
+    - returns `""` (empty string) when neither is present, so the front-end
+      can render nothing rather than a generic "no data" line.
+- `convex/riskFlag.ts` + `convex/riskFlagQueries.ts` — the action
+  `composeRiskFlag(businessId)` calls `getHistoricalSummary` (per-location
+  escalation rate over the last 30 days, requires ≥3 shifts for a real
+  sample) and `recentForBusiness` (TTL-filtered local events) in parallel
+  via `Promise.all`, then composes the sentence via `draftRiskFlag`.
+
+**Frontend additions**
+- `react-leaflet@5` + `leaflet@1.9` (and `@types/leaflet`) added. Build
+  cleanly code-splits leaflet into its own 148kb chunk (43kb gzipped) —
+  the app code only loads the map when the form mounts.
+- `LocalEventsMap` component (in `App.tsx`) lazy-loads the leaflet bundle
+  on mount, fixes the well-known "marker icons 404" bundler bug by
+  re-pointing `L.Icon.Default` at the unpkg CDN images, and renders the
+  business as one pin and each plotted event as a smaller pin with a
+  popup showing the title + venue. Events without `lat`/`lng` are
+  silently filtered, not rendered, not errored.
+- The map only renders when the business has `lat` AND `lng` (geocode
+  succeeded at onboarding) AND there are plottable events. Otherwise the
+  text risk flag stands alone.
+- `PostShiftForm` now receives the `business` doc, fires `composeRiskFlag`
+  on mount via `useAction`, and renders the result as an amber strip
+  directly above the role/start-time fields (per the prompt: "context
+  for the flag directly above it, not a standalone feature").
+
+**Verification (all run on the dev deployment, all green)**
+- `testGeocodeLocation: "Merced, CA"` → `lat: 37.164, lng: -120.768, name:
+  "Merced County, California, United States"`. Plausible for the city.
+- `testGeocodeSeedBusiness` patches the existing Merced Coffee Co. row
+  with the same coordinates.
+- `testLocalEventsTtl`: seeded a 4-day-old "Stale past event" plus a
+  fresh "Fresh upcoming concert" near Merced; `recentForBusiness` with
+  `sinceFetchedAt = now - 3d` returned the fresh one and excluded the
+  stale one (visible count = 10 across all live-fetched + fresh; the
+  stale entry is correctly hidden).
+- `testComposeRiskFlag` — all four scenarios:
+    - **both**: "With 66% of recent shifts needing backup and a concert
+      plus marathon driving demand Mon–Tue, broadcast early to secure
+      coverage."
+    - **historical only**: "Two of the last three shifts here required
+      backup or delayed confirmation; broadcast early to secure coverage."
+    - **events only**: "Concert Mon 9/7 and marathon Tue 9/8 nearby may
+      drain backup pool — broadcast shift early to secure coverage."
+    - **neither**: `""` (empty string — caller renders nothing).
+- `tsc --noEmit` passes with zero errors. `npx convex dev` deploys
+  cleanly. `npx vite build` succeeds (map code-splits to its own chunk).
+- The previously-existing tests still pass: `testConsentFilter` (3
+  consented / 1 non-consented), `testBackupPoolTtl`, race approve,
+  parse_failed path.

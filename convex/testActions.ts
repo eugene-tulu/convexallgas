@@ -114,3 +114,108 @@ export const testBackupPoolTtl = internalAction({
     };
   },
 });
+
+export const testGeocodeLocation = internalAction({
+  args: { query: v.string() },
+  handler: async (ctx, args): Promise<unknown> => {
+    const { geocodeLocation } = await import("./geocode");
+    const result = await geocodeLocation(args.query);
+    return { query: args.query, result };
+  },
+});
+
+export const testGeocodeSeedBusiness = internalAction({
+  args: { businessId: v.id("businesses") },
+  handler: async (ctx, args): Promise<unknown> => {
+    const biz = await ctx.runQuery(internal.localEventsBridge.getBusinessForEvents, {
+      id: args.businessId,
+    });
+    if (!biz) return { error: "business not found" };
+    const { geocodeLocation } = await import("./geocode");
+    const result = await geocodeLocation(biz.location);
+    if (result) {
+      await ctx.runMutation(internal.businessesBridge.patchBusinessGeocode, {
+        id: args.businessId,
+        lat: result.lat,
+        lng: result.lng,
+      });
+    }
+    return { location: biz.location, result };
+  },
+});
+
+export const testLocalEventsTtl = internalAction({
+  args: { businessId: v.id("businesses") },
+  handler: async (ctx, args): Promise<unknown> => {
+    // Insert one stale (>3d old) and one fresh event.
+    const stale = await ctx.runMutation(internal.localEventsBridge.insertLocalEvent, {
+      businessId: args.businessId,
+      title: "Stale past event",
+      description: "Already happened last week",
+      sourceUrl: "https://example.com/stale-event",
+      venueText: "Old venue",
+      lat: 37.3022,
+      lng: -120.4829,
+      fetchedAt: Date.now() - 4 * 24 * 60 * 60 * 1000,
+    });
+    const fresh = await ctx.runMutation(internal.localEventsBridge.insertLocalEvent, {
+      businessId: args.businessId,
+      title: "Fresh upcoming concert",
+      description: "Friday night at the park",
+      sourceUrl: "https://example.com/fresh-event",
+      venueText: "Applegate Park, Merced",
+      lat: 37.31,
+      lng: -120.47,
+      eventDate: Date.now() + 3 * 24 * 60 * 60 * 1000,
+      fetchedAt: Date.now(),
+    });
+    const since = Date.now() - 3 * 24 * 60 * 60 * 1000;
+    const visible = await ctx.runQuery(internal.localEventsBridge.recentForBusiness, {
+      businessId: args.businessId,
+      sinceFetchedAt: since,
+    });
+    return {
+      staleInserted: stale,
+      freshInserted: fresh,
+      visibleCount: visible.length,
+      visibleTitles: visible.map((e) => e.title),
+    };
+  },
+});
+
+export const testComposeRiskFlag = internalAction({
+  args: {
+    businessId: v.id("businesses"),
+    scenario: v.union(
+      v.literal("both"),
+      v.literal("historical_only"),
+      v.literal("events_only"),
+      v.literal("neither")
+    ),
+  },
+  handler: async (ctx, args): Promise<unknown> => {
+    // For deterministic testing, we drive the LLM with a constructed input
+    // rather than the real historical query. This lets us verify each
+    // combination of signals in isolation.
+    let historical = "";
+    let events: Array<{ title: string; eventDate?: number }> = [];
+    if (args.scenario === "both" || args.scenario === "historical_only") {
+      historical = "2 of last 3 shifts (66%) needed backup or took longer than 5 min to confirm.";
+    }
+    if (args.scenario === "both" || args.scenario === "events_only") {
+      events = [
+        { title: "Concert at the fairgrounds", eventDate: Date.now() + 2 * 24 * 60 * 60 * 1000 },
+        { title: "City marathon", eventDate: Date.now() + 3 * 24 * 60 * 60 * 1000 },
+      ];
+    }
+    if (args.scenario === "neither") {
+      historical = "";
+      events = [];
+    }
+    const text = (await ctx.runAction(api.llmTasks.draftRiskFlag, {
+      historicalSummary: historical,
+      nearbyEvents: events,
+    })) as string;
+    return { scenario: args.scenario, historical, events, riskFlag: text };
+  },
+});

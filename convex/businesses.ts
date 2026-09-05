@@ -2,6 +2,8 @@
 import { v } from "convex/values";
 import { action } from "./_generated/server";
 import { internal, api } from "./_generated/api";
+import { geocodeLocation } from "./geocode";
+import { Id } from "./_generated/dataModel";
 
 export const createBusiness = action({
   args: {
@@ -79,6 +81,42 @@ export const createBusiness = action({
       action: "business_created",
       summary: `Created business "${args.name}" (${category}) with inbox ${inbox.email}`,
     });
+
+    // Geocode the location string. Non-fatal: log and continue without
+    // coordinates if Nominatim is unreachable, returns 0 results, or the
+    // query is unparseable. The risk-flag map just won't render for this
+    // business.
+    try {
+      const geo = await geocodeLocation(args.location);
+      if (geo) {
+        await ctx.runMutation(internal.businessesBridge.patchBusinessGeocode, {
+          id: businessId as Id<"businesses">,
+          lat: geo.lat,
+          lng: geo.lng,
+        });
+        await ctx.runMutation(internal.eventsLog.logEvent, {
+          table: "businesses",
+          rowId: businessId,
+          action: "geocoded",
+          summary: `Geocoded "${args.location}" to (${geo.lat.toFixed(4)}, ${geo.lng.toFixed(4)}) — ${geo.displayName}`,
+        });
+      } else {
+        await ctx.runMutation(internal.eventsLog.logEvent, {
+          table: "businesses",
+          rowId: businessId,
+          action: "geocode_failed",
+          summary: `Geocode returned no results for "${args.location}"`,
+        });
+      }
+    } catch (e) {
+      await ctx.runMutation(internal.eventsLog.logEvent, {
+        table: "businesses",
+        rowId: businessId,
+        action: "geocode_failed",
+        summary: `Geocode threw for "${args.location}": ${(e as Error).message}`,
+      });
+    }
+
     return { businessId, inboxId: inbox.inboxId, inboxEmail: inbox.email };
   },
 });

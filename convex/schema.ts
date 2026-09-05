@@ -15,6 +15,11 @@ export default defineSchema({
     hoursJson: v.optional(v.string()),
     sizeSignal: v.optional(v.string()),
     location: v.string(),
+    // Geocoded from `location` during onboarding via Nominatim. Unset = geocode
+    // failed or not yet attempted. Non-fatal — the rest of the app works
+    // without these; the risk-flag map just won't render.
+    lat: v.optional(v.number()),
+    lng: v.optional(v.number()),
     sourceUrl: v.optional(v.string()),
     ownerUserId: v.optional(v.id("users")),
     inboxId: v.string(),
@@ -114,4 +119,22 @@ export default defineSchema({
   })
     .index("by_table_rowId", ["table", "rowId"])
     .index("by_timestamp", ["timestamp"]),
+
+  // Local events near a business (concerts, sports, conferences, etc.) that
+  // plausibly raise call-out risk. Fetched daily via Firecrawl search +
+  // Nominatim geocode. Rows stay forever; the risk-flag query uses a
+  // `since` filter with a 3-day TTL so stale events don't keep scoring.
+  localEvents: defineTable({
+    businessId: v.id("businesses"),
+    title: v.string(),
+    description: v.string(),
+    sourceUrl: v.string(),
+    venueText: v.optional(v.string()),
+    lat: v.optional(v.number()),
+    lng: v.optional(v.number()),
+    eventDate: v.optional(v.number()),
+    fetchedAt: v.number(),
+  })
+    .index("by_businessId_fetchedAt", ["businessId", "fetchedAt"])
+    .index("by_businessId_eventDate", ["businessId", "eventDate"]),
 });

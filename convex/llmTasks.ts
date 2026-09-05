@@ -262,3 +262,93 @@ Return JSON of shape:
     return parsed.value;
   },
 });
+
+export const extractEventVenue = action({
+  args: {
+    title: v.string(),
+    description: v.string(),
+  },
+  handler: async (ctx, args): Promise<unknown> => {
+    const systemPrompt =
+      "You extract a venue/address and a date from a local event listing. Return ONLY valid JSON. If a field is unknown, return null for it — do not guess.";
+    const userPrompt = `Extract the venue (street address or place name) and event date from this listing.
+
+Return JSON of shape:
+{
+  "venueText": string | null,    // e.g. "123 Main St, Merced, CA" or "Merced Theatre" — null if unknown
+  "eventDate": number | null      // unix ms timestamp if a specific date is mentioned (today, tomorrow, this Friday, "Oct 14", etc.) — null if no date or only a vague window
+}
+
+Title: ${args.title}
+
+Description: ${args.description.slice(0, 1500)}`;
+
+    const raw = (await ctx.runAction(internal.llmTaskBridge.runLlmTaskRaw, {
+      prompt: userPrompt,
+      systemPrompt,
+    })) as string;
+    const parsed = safeJsonParse<{
+      venueText: string | null;
+      eventDate: number | null;
+    }>(raw);
+    if (!parsed.ok) {
+      await ctx.runMutation(internal.eventsLog.logEvent, {
+        table: "localEvents",
+        rowId: "extract",
+        action: "parse_failed",
+        summary: `extractEventVenue JSON parse failed: ${parsed.error}. Raw: ${raw.slice(0, 200)}`,
+      });
+      return null;
+    }
+    return parsed.value;
+  },
+});
+
+export const draftRiskFlag = action({
+  args: {
+    historicalSummary: v.string(),
+    nearbyEvents: v.array(
+      v.object({
+        title: v.string(),
+        eventDate: v.optional(v.number()),
+      })
+    ),
+  },
+  handler: async (ctx, args): Promise<unknown> => {
+    const hasHistorical = args.historicalSummary.trim().length > 0;
+    const hasEvents = args.nearbyEvents.length > 0;
+    if (!hasHistorical && !hasEvents) {
+      // Insufficient data — caller can render nothing.
+      return "";
+    }
+    const systemPrompt = `You write a one-sentence risk flag shown above the post-shift form. It tells the manager whether this shift is likely to need backup.
+- Be specific to this role, business, and signals. No generic filler.
+- If both signals are present, weave them into one cohesive sentence.
+- If only one is present, write a one-signal sentence.
+- Keep it under 200 chars. No emojis. No exclamation marks. No "Hey" or "FYI".
+- End with concrete advice ("bump the rate up front" / "broadcast a bit early" / etc.) only when the signal warrants it. Otherwise end on the observation alone.`;
+
+    let eventsLine = "";
+    if (hasEvents) {
+      const lines = args.nearbyEvents.slice(0, 3).map((e) => {
+        const when = e.eventDate
+          ? new Date(e.eventDate).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
+          : "date TBD";
+        return `- ${e.title} (${when})`;
+      });
+      eventsLine = `Nearby events this week:\n${lines.join("\n")}`;
+    }
+
+    const userPrompt = `Historical escalation signal for this role+location:
+${hasHistorical ? args.historicalSummary : "(no history yet — first call-out for this role)"}
+
+${eventsLine}
+
+Write one sentence (under 200 chars) for the manager.`;
+
+    return await ctx.runAction(internal.llmTaskBridge.runLlmTaskRaw, {
+      prompt: userPrompt,
+      systemPrompt,
+    });
+  },
+});
