@@ -432,3 +432,100 @@ the path to production, not for a hackathon.
 - All 4 `testComposeRiskFlag` scenarios still produce sensible output.
 - Geocode works against `San Francisco, CA` (37.79, -122.41) using the
   env-driven UA. 10s `AbortController` timeout in place.
+
+### 2026-09-07 - fourth-pass review fixes
+
+Followed the reviewer's "fix for A" list. **The most important fix was
+#1 — the external-candidate approval path was a complete dead end.**
+Two bugs were hiding behind one symptom:
+
+**#1 — External-candidate approval now works end-to-end.**
+The previous `approveCandidate` did two things wrong:
+1. It threw `"External candidates need a separate flow"` on any
+   `source === "external"` response, even though external candidates
+   are exactly what the escalation pipeline surfaces.
+2. It only accepted `status === "broadcasting" | "shortlist_ready"`,
+   but the moment escalation fires the shift moves to `escalating`,
+   so a manager trying to approve an external candidate would always
+   see `lost_race` first.
+
+Fix:
+- `approveCandidate` now accepts `status === "escalating"` as a valid
+  pre-approval state. A shift in `confirmed` or `cancelled` is still
+  the only thing that loses the race.
+- The mutation no longer throws on external responses. It patches the
+  shift to `confirmed` (same atomic single-mutation path) and writes a
+  richer `shift_confirmed` event that includes the external sourceUrl
+  and a note that the manager will contact the candidate directly.
+- For internal wins, the existing `sendConfirmAndRejects` scheduler
+  still runs (warm confirm + reject emails). For external wins, no
+  email is scheduled (there's no worker contact), and an extra
+  `external_confirmed` event row is written on the response for the
+  paper trail.
+- Return type is now `{ confirmed: true, confirmedAt: number,
+  external: boolean }` so the front-end can render a different
+  confirmation copy for the two paths.
+
+Verified end-to-end on a fresh shift that escalated and got warm-pool
+external candidates:
+```
+> repliesQueries:approveCandidate {shiftId: k974...zfa, responseId: k575...a22}
+{
+  "confirmed": true,
+  "confirmedAt": 1788779250314,
+  "external": true
+}
+```
+Event log: `"Confirmed by external candidate
+(https://www.careerbuilder.com/job-details/barista-store-59960-...)
+(elapsed 73s from broadcast) — manager will contact the candidate via
+the source URL"`.
+
+**#2 — `workers.list` now requires `businessId`.**
+Changed `args: { businessId: v.optional(v.id("businesses")) }` to
+`args: { businessId: v.id("businesses") }` and deleted the no-arg
+fallback branch that returned the first 100 workers globally. Verified:
+a call without `businessId` errors with
+`ArgumentValidationError: Object is missing the required field
+'businessId'`. A call with the right businessId returns only that
+business's workers.
+
+**#3 — `broadcastShift` batch-loads workers in one round-trip.**
+Added `workersBridge.getWorkersBatch` (mirrors the `q.or(...)` pattern
+from `repliesQueries.shortlist`). `broadcastShift`'s `for (const wid
+of args.workerIds)` loop is now a single `runQuery` followed by a JS
+filter for consent + business match. For 50 worker IDs that's 50
+round-trips collapsed into 1.
+
+**#4 — `computeScore` has real types.**
+Replaced the `any`-typed `ctx` parameter with a `RankingCtx` interface
+(`db.get(id: Id<"workers">) => Promise<Doc<"workers"> | null>`) and the
+`any` `workerId` field with `Id<"workers"> | undefined`. `tsc` clean.
+
+**#5 — `shiftId` validated before cast.**
+The webhook handler now runs the regex capture through
+`/^[a-z0-9_-]{1,64}$/` and returns `malformed shift id` (with an
+`unrouted_reply` event log) before the `as Id<"shifts">` cast, so a
+malformed tag can't slip through with a lying type.
+
+**#6 — `OnboardTab` drops `(r as any)`.**
+`(r as any).inboxEmail` → `r.inboxEmail`. `createBusiness`'s return
+type is already known; the cast was unnecessary.
+
+**#7 — opt-in decline form sends empty `roles`.**
+`value="[]"` → `value=""` on the hidden input. The comma-split in
+the POST handler now produces `[]` (filtered out) instead of
+`["[]"]` (a misleading single-element array). Harmless at runtime
+because the decline path returns early, but the data is now correct.
+
+**Verification**
+- `tsc --noEmit` clean. `npx convex dev` deploys clean. `npx vite build`
+  succeeds.
+- `testConsentFilter` (3/1), `testBackupPoolTtl`, `testLocalEventsDedupe`
+  (both runs return `created: false` against the existing row —
+  dedupe is working at the row level now), `testRiskFlagCache`,
+  all 4 `testComposeRiskFlag` scenarios.
+- External-candidate approval verified end-to-end on a real
+  escalated shift against a real warm-pool external response.
+- `workers:list` with no args errors; with `businessId` returns the
+  right slice.

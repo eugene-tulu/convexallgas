@@ -530,7 +530,7 @@ function OnboardTab() {
             setBusy(true);
             try {
               const r = await createBusiness({ name, category, location, sizeSignal, hoursJson: "{}", sourceUrl: sourceUrl || undefined });
-              setResult(`Created ${name} with inbox ${(r as any).inboxEmail}`);
+              setResult(`Created ${name} with inbox ${r.inboxEmail}`);
             } catch (e) {
               setResult(`Error: ${(e as Error).message}`);
             } finally {

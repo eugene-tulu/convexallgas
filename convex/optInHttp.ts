@@ -47,7 +47,7 @@ const optInPage = (token: string, message: string = "") => `<!doctype html>
     <form method="POST" action="/opt-in?token=${encodeURIComponent(token)}" style="margin-top: 8px;">
       <input type="hidden" name="consent" value="false" />
       <input type="hidden" name="name" value="" />
-      <input type="hidden" name="roles" value="[]" />
+      <input type="hidden" name="roles" value="" />
       <div class="row">
         <button class="no" type="submit">No thanks</button>
       </div>

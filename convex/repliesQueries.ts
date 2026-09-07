@@ -47,7 +47,17 @@ export const approveCandidate = mutation({
   handler: async (ctx, args) => {
     const shift = await ctx.db.get(args.shiftId);
     if (!shift) throw new Error("Shift not found");
-    if (shift.status !== "broadcasting" && shift.status !== "shortlist_ready") {
+    // Approval is valid from any of the three "open" statuses: the shift
+    // can be broadcasting (manager approves an internal candidate before
+    // the cron escalates), shortlist_ready (a reply came in and the
+    // manager picks a winner), or escalating (the internal roster timed
+    // out and external candidates are now in play). A shift that's
+    // already confirmed or cancelled lost the race.
+    if (
+      shift.status !== "broadcasting" &&
+      shift.status !== "shortlist_ready" &&
+      shift.status !== "escalating"
+    ) {
       // Don't throw — log the race-loss and return so the events row actually commits.
       // The caller can detect this via `confirmed: false`.
       await ctx.db.insert("events", {
@@ -62,11 +72,14 @@ export const approveCandidate = mutation({
     const response = await ctx.db.get(args.responseId);
     if (!response) throw new Error("Response not found");
     if (response.shiftId !== shift._id) throw new Error("Response is for a different shift");
-    if (response.source !== "internal" || !response.workerId) {
-      throw new Error("External candidates need a separate flow");
-    }
 
     const now = Date.now();
+    const isExternal = response.source === "external";
+    // Build a paper-trail summary that includes the external sourceUrl when
+    // relevant, so the audit log shows where the candidate came from.
+    const sourceTag = isExternal
+      ? `external candidate (${response.externalSourceUrl ?? "no source url"})`
+      : `internal response ${args.responseId}`;
     await ctx.db.patch(shift._id, {
       status: "confirmed",
       confirmedAt: now,
@@ -77,15 +90,28 @@ export const approveCandidate = mutation({
       rowId: shift._id,
       action: "shift_confirmed",
       timestamp: now,
-      summary: `Confirmed by response ${args.responseId} (elapsed ${Math.round(
+      summary: `Confirmed by ${sourceTag} (elapsed ${Math.round(
         (now - (shift.broadcastAt ?? now)) / 1000
-      )}s from broadcast)`,
+      )}s from broadcast)${isExternal ? " — manager will contact the candidate via the source URL" : ""}`,
     });
 
-    await ctx.scheduler.runAfter(0, internal.repliesBridge.sendConfirmAndRejects, {
-      shiftId: shift._id,
-      winningResponseId: args.responseId,
-    });
-    return { confirmed: true, confirmedAt: now };
+    // For internal wins, schedule the warm confirm/reject emails. For
+    // external wins there is no worker contact in the system — the
+    // manager is responsible for reaching out via the source URL.
+    if (!isExternal) {
+      await ctx.scheduler.runAfter(0, internal.repliesBridge.sendConfirmAndRejects, {
+        shiftId: shift._id,
+        winningResponseId: args.responseId,
+      });
+    } else {
+      await ctx.db.insert("events", {
+        table: "responses",
+        rowId: args.responseId,
+        action: "external_confirmed",
+        timestamp: now,
+        summary: `Manager approved external candidate from ${response.externalSourceUrl ?? "unknown source"}. Contact is the manager's responsibility.`,
+      });
+    }
+    return { confirmed: true, confirmedAt: now, external: isExternal };
   },
 });

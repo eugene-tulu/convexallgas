@@ -2,17 +2,14 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 
 export const list = query({
-  args: { businessId: v.optional(v.id("businesses")) },
+  args: { businessId: v.id("businesses") },
   handler: async (ctx, args) => {
-    if (args.businessId) {
-      return await ctx.db
-        .query("workers")
-        .withIndex("by_businessId_consent", (q) =>
-          q.eq("businessId", args.businessId!)
-        )
-        .take(100);
-    }
-    return await ctx.db.query("workers").take(100);
+    return await ctx.db
+      .query("workers")
+      .withIndex("by_businessId_consent", (q) =>
+        q.eq("businessId", args.businessId)
+      )
+      .take(100);
   },
 });
 

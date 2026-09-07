@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { Id, Doc } from "./_generated/dataModel";
 import { env } from "./_generated/server";
 
 const parsedAvailability = v.object({
@@ -76,13 +77,20 @@ export const rankShiftResponses = internalMutation({
 });
 
 // Single-response ranking — O(1) given the row + worker.
+type ResponseForScoring = {
+  workerId?: Id<"workers">;
+  parsedAvailability?: { confidence?: number; available?: boolean };
+  receivedAt: number;
+};
+type RankingCtx = {
+  db: {
+    get: (id: Id<"workers">) => Promise<Doc<"workers"> | null>;
+  };
+};
+
 async function computeScore(
-  ctx: { db: { get: (id: any) => Promise<any> } },
-  r: {
-    workerId?: any;
-    parsedAvailability?: { confidence?: number; available?: boolean };
-    receivedAt: number;
-  }
+  ctx: RankingCtx,
+  r: ResponseForScoring
 ): Promise<number> {
   let reliability = 0.5;
   if (r.workerId) {

@@ -8,6 +8,24 @@ export const getWorker = internalQuery({
   },
 });
 
+// Batch-load workers by id list. One DB round-trip regardless of list
+// size, mirroring the q.or(...) pattern already used in
+// `repliesQueries.shortlist`. Filters out (and silently drops) any
+// rows that don't exist — callers validate the business/consent match
+// against the returned rows.
+export const getWorkersBatch = internalQuery({
+  args: { ids: v.array(v.id("workers")) },
+  handler: async (ctx, args) => {
+    if (args.ids.length === 0) return [];
+    const unique = Array.from(new Set(args.ids));
+    const rows = await ctx.db
+      .query("workers")
+      .filter((q) => q.or(...unique.map((id) => q.eq(q.field("_id"), id))))
+      .collect();
+    return rows;
+  },
+});
+
 export const listConsentedForBusiness = internalQuery({
   args: { businessId: v.id("businesses") },
   handler: async (ctx, args) => {

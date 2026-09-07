@@ -46,7 +46,21 @@ export const processBroadcastReply = internalAction({
       });
       return { processed: false, reason: "no shift tag" };
     }
-    const shiftId = tagMatch[1] as Id<"shifts">;
+    // Convex doc IDs are lowercase alphanumerics (dashes are legal
+    // separators). Validate the regex capture against that shape before
+    // casting to Id<"shifts">, so a malformed tag can't slip through
+    // with a lying type.
+    const idStr = tagMatch[1];
+    if (!/^[a-z0-9_-]{1,64}$/.test(idStr)) {
+      await ctx.runMutation(internal.eventsLog.logEvent, {
+        table: "webhook",
+        rowId: args.messageId,
+        action: "unrouted_reply",
+        summary: `Reply from ${args.from} had a malformed [shift:<id>] tag: "${idStr}"`,
+      });
+      return { processed: false, reason: "malformed shift id" };
+    }
+    const shiftId = idStr as Id<"shifts">;
     const shift = await ctx.runQuery(internal.shiftsBridge.getShift, { shiftId });
     if (!shift) {
       await ctx.runMutation(internal.eventsLog.logEvent, {

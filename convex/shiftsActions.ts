@@ -23,13 +23,20 @@ export const broadcastShift = internalAction({
 
     let recipients: { _id: string; name: string; contact: string }[];
     if (args.workerIds && args.workerIds.length > 0) {
-      recipients = [];
-      for (const wid of args.workerIds) {
-        const w = await ctx.runQuery(internal.workersBridge.getWorker, { id: wid });
-        if (w && w.consent && w.businessId === shift.businessId) {
-          recipients.push({ _id: w._id, name: w.name, contact: w.contact });
-        }
-      }
+      // Batch-load the requested workers in one DB round-trip, then
+      // filter for business + consent matches in JS.
+      const workers = (await ctx.runQuery(internal.workersBridge.getWorkersBatch, {
+        ids: args.workerIds,
+      })) as Array<{
+        _id: string;
+        name: string;
+        contact: string;
+        consent: boolean;
+        businessId?: string;
+      }>;
+      recipients = workers
+        .filter((w) => w.consent && w.businessId === shift.businessId)
+        .map((w) => ({ _id: w._id, name: w.name, contact: w.contact }));
     } else {
       recipients = await ctx.runQuery(
         internal.workersBridge.listConsentedForBusiness,
