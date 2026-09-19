@@ -16,10 +16,11 @@ AgentMail. The dashboard is a live control plane for hunts, candidates, outreach
 - **Hosting**: `@convex-dev/static-hosting` on Convex
 
 ## Public Build
-- **Live app**: https://basic-hippopotamus-995.convex.site
-- **Deployment**: Convex development deployment (publicly reachable)
+- **Live app**: https://fine-fish-527.convex.site
+- **Backend**: https://fine-fish-527.convex.cloud
+- **Deployment**: Convex production deployment
 - **Public repository**: https://github.com/eugene-tulu/convexallgas
-- **Demo video**: Pending recording after deployment
+- **Demo video**: https://www.youtube.com/watch?v=pIHbwgOvZwg
 
 ## Development Journey
 
@@ -69,8 +70,9 @@ side effect.
 The working tree implements dashboard/email handoff, explicit private inbox setup,
 sender-safe webhook processing, retained hunt activity, Firecrawl Monitor integration, and durable
 notification retries. The NVIDIA-backed LLM endpoint remains unchanged by request. A public
-development build is live on Convex static hosting; no Convex production deployment has been
-performed.
+production build is live on Convex static hosting with password authentication, private AgentMail
+inbox provisioning, and signed webhook processing. The production deployment serves the live app at
+https://fine-fish-527.convex.site and the backend at https://fine-fish-527.convex.cloud.
 
 ### 2026-09-12 - working tree
 Added the email-first runtime: authenticated users can provision an agent inbox, signed AgentMail
@@ -767,3 +769,11 @@ production build. The controlled demo inbox remains available only to its config
 account; private inbox provisioning remains disabled, with all other accounts offered a dashboard
 and waitlist path. No Convex production deployment, seller contact, third-party login, or private
 inbox creation occurred.
+
+### 2026-09-19 — production deployment
+Deployed the full app to the Convex production deployment (`fine-fish-527`). Configured all required
+environment variables: AgentMail API key and webhook secret for the `jamanyo@agentmail.to` operational
+inbox, `@convex-dev/auth` signing keys (`JWT_PRIVATE_KEY`, `JWKS`), `SITE_URL`, and
+`JAMANYO_DEMO_EMAIL` for the controlled demo gate. Verified end-to-end: account signup with email
+confirmation, dashboard sign-in, and demo inbox provisioning — the live app is served from
+https://fine-fish-527.convex.site with the backend at https://fine-fish-527.convex.cloud.
