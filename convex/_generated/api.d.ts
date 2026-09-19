@@ -8,43 +8,42 @@
  * @module
  */
 
-import type * as businesses from "../businesses.js";
-import type * as businessesBridge from "../businessesBridge.js";
-import type * as businessesQueries from "../businessesQueries.js";
+import type * as agentThreads from "../agentThreads.js";
+import type * as agentmailIdempotency from "../agentmailIdempotency.js";
+import type * as auctionWatches from "../auctionWatches.js";
+import type * as auth from "../auth.js";
+import type * as candidates from "../candidates.js";
 import type * as crons from "../crons.js";
-import type * as escalation from "../escalation.js";
-import type * as escalationBridge from "../escalationBridge.js";
+import type * as discovery from "../discovery.js";
 import type * as events from "../events.js";
 import type * as eventsLog from "../eventsLog.js";
 import type * as firecrawl from "../firecrawl.js";
-import type * as geocode from "../geocode.js";
+import type * as garageBriefActions from "../garageBriefActions.js";
+import type * as garageBriefs from "../garageBriefs.js";
 import type * as http from "../http.js";
+import type * as hunt from "../hunt.js";
+import type * as huntFeedback from "../huntFeedback.js";
+import type * as huntRuns from "../huntRuns.js";
+import type * as hunts from "../hunts.js";
+import type * as inboundActions from "../inboundActions.js";
+import type * as inbox from "../inbox.js";
+import type * as listingEvidence from "../listingEvidence.js";
 import type * as llm from "../llm.js";
-import type * as llmTaskBridge from "../llmTaskBridge.js";
-import type * as llmTasks from "../llmTasks.js";
-import type * as localEvents from "../localEvents.js";
-import type * as localEventsBridge from "../localEventsBridge.js";
-import type * as localEventsQueries from "../localEventsQueries.js";
 import type * as mail from "../mail.js";
-import type * as mailBridge from "../mailBridge.js";
-import type * as optIn from "../optIn.js";
-import type * as optInHttp from "../optInHttp.js";
-import type * as replies from "../replies.js";
-import type * as repliesActions from "../repliesActions.js";
-import type * as repliesBridge from "../repliesBridge.js";
-import type * as repliesQueries from "../repliesQueries.js";
-import type * as riskFlag from "../riskFlag.js";
-import type * as riskFlagQueries from "../riskFlagQueries.js";
-import type * as seed from "../seed.js";
-import type * as seedAction from "../seedAction.js";
-import type * as seedBridge from "../seedBridge.js";
-import type * as shifts from "../shifts.js";
-import type * as shiftsActions from "../shiftsActions.js";
-import type * as shiftsBridge from "../shiftsBridge.js";
-import type * as testActions from "../testActions.js";
-import type * as warmPool from "../warmPool.js";
-import type * as workers from "../workers.js";
-import type * as workersBridge from "../workersBridge.js";
+import type * as market from "../market.js";
+import type * as monitorChecks from "../monitorChecks.js";
+import type * as notifications from "../notifications.js";
+import type * as operationalIssues from "../operationalIssues.js";
+import type * as outreach from "../outreach.js";
+import type * as outreachActions from "../outreachActions.js";
+import type * as outreachBridge from "../outreachBridge.js";
+import type * as preferences from "../preferences.js";
+import type * as rateLimit from "../rateLimit.js";
+import type * as retention from "../retention.js";
+import type * as searchQueries from "../searchQueries.js";
+import type * as sourceRegistry from "../sourceRegistry.js";
+import type * as verify from "../verify.js";
+import type * as webhookEvents from "../webhookEvents.js";
 
 import type {
   ApiFromModules,
@@ -53,43 +52,42 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
-  businesses: typeof businesses;
-  businessesBridge: typeof businessesBridge;
-  businessesQueries: typeof businessesQueries;
+  agentThreads: typeof agentThreads;
+  agentmailIdempotency: typeof agentmailIdempotency;
+  auctionWatches: typeof auctionWatches;
+  auth: typeof auth;
+  candidates: typeof candidates;
   crons: typeof crons;
-  escalation: typeof escalation;
-  escalationBridge: typeof escalationBridge;
+  discovery: typeof discovery;
   events: typeof events;
   eventsLog: typeof eventsLog;
   firecrawl: typeof firecrawl;
-  geocode: typeof geocode;
+  garageBriefActions: typeof garageBriefActions;
+  garageBriefs: typeof garageBriefs;
   http: typeof http;
+  hunt: typeof hunt;
+  huntFeedback: typeof huntFeedback;
+  huntRuns: typeof huntRuns;
+  hunts: typeof hunts;
+  inboundActions: typeof inboundActions;
+  inbox: typeof inbox;
+  listingEvidence: typeof listingEvidence;
   llm: typeof llm;
-  llmTaskBridge: typeof llmTaskBridge;
-  llmTasks: typeof llmTasks;
-  localEvents: typeof localEvents;
-  localEventsBridge: typeof localEventsBridge;
-  localEventsQueries: typeof localEventsQueries;
   mail: typeof mail;
-  mailBridge: typeof mailBridge;
-  optIn: typeof optIn;
-  optInHttp: typeof optInHttp;
-  replies: typeof replies;
-  repliesActions: typeof repliesActions;
-  repliesBridge: typeof repliesBridge;
-  repliesQueries: typeof repliesQueries;
-  riskFlag: typeof riskFlag;
-  riskFlagQueries: typeof riskFlagQueries;
-  seed: typeof seed;
-  seedAction: typeof seedAction;
-  seedBridge: typeof seedBridge;
-  shifts: typeof shifts;
-  shiftsActions: typeof shiftsActions;
-  shiftsBridge: typeof shiftsBridge;
-  testActions: typeof testActions;
-  warmPool: typeof warmPool;
-  workers: typeof workers;
-  workersBridge: typeof workersBridge;
+  market: typeof market;
+  monitorChecks: typeof monitorChecks;
+  notifications: typeof notifications;
+  operationalIssues: typeof operationalIssues;
+  outreach: typeof outreach;
+  outreachActions: typeof outreachActions;
+  outreachBridge: typeof outreachBridge;
+  preferences: typeof preferences;
+  rateLimit: typeof rateLimit;
+  retention: typeof retention;
+  searchQueries: typeof searchQueries;
+  sourceRegistry: typeof sourceRegistry;
+  verify: typeof verify;
+  webhookEvents: typeof webhookEvents;
 }>;
 
 /**
@@ -118,4 +116,7 @@ export declare const internal: FilterApi<
   FunctionReference<any, "internal">
 >;
 
-export declare const components: {};
+export declare const components: {
+  rateLimiter: import("@convex-dev/rate-limiter/_generated/component.js").ComponentApi<"rateLimiter">;
+  staticHosting: import("@convex-dev/static-hosting/_generated/component.js").ComponentApi<"staticHosting">;
+};

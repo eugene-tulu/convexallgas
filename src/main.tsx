@@ -1,16 +1,15 @@
-import React from "react";
 import { createRoot } from "react-dom/client";
-import { ConvexReactClient, ConvexProvider } from "convex/react";
+import { ConvexAuthProvider } from "@convex-dev/auth/react";
+import { ConvexReactClient } from "convex/react";
 import App from "./App";
 import "./index.css";
 
-const convexUrl = import.meta.env.VITE_CONVEX_URL || "http://127.0.0.1:3210";
-const convex = new ConvexReactClient(convexUrl);
+const convex = new ConvexReactClient(
+  import.meta.env.VITE_CONVEX_URL || "http://127.0.0.1:3210",
+);
 
 createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    <ConvexProvider client={convex}>
-      <App />
-    </ConvexProvider>
-  </React.StrictMode>
+  <ConvexAuthProvider client={convex}>
+    <App />
+  </ConvexAuthProvider>,
 );

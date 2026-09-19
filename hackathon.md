@@ -1,531 +1,769 @@
-# Hackathon log
+# Jamanyo — Build Log
 
-- **Project:** convexallgas
-- **Event:** Convex All Gas Hackathon
-- **What it does:** *Pivot 2026-09-04 — see "Proxy build" below.* The original build was a compliance tracker for EIA projects; the repo has been pivoted to **Proxy** — an email-first shift call-out tool that broadcasts a call-out to a consented worker list, LLM-ranks replies, lets a manager approve in one tap, and falls back to Firecrawl-discovered external candidates if internal sourcing times out.
-- **Live app:** https://basic-hippopotamus-995.convex.cloud
-- **Repo:** https://github.com/eugene-tulu/convexallgas
-- **Frontend:** https://basic-hippopotamus-995.convex.site
-- **Convex deployment:** dev/gntulu (basic-hippopotamus-995)
-- **Components:** none
-- **Convex features:** Database, Actions (Node.js), Mutations, Queries, HTTP Actions, Cron Jobs
-- **Auth:** none (public access for hackathon demo)
-- **AI models:** NVIDIA NIM (nvapi) at https://integrate.api.nvidia.com/v1
-  - Chat: nvidia/nemotron-3-ultra-550b-a55b
-  - Embeddings: nvidia/nemotron-3-embed-1b (2048-dim)
-- **Started:** 2026-09-01T06:34:40Z
-- **Last updated:** 2026-09-02T21:55:00Z
+## Concept
+Jamanyo is an email-first two-directional hunt agent: users send a request to their agent inbox,
+and the agent searches or monitors the web, verifies candidates, and replies with results through
+AgentMail. The dashboard is a live control plane for hunts, candidates, outreach, and activity.
 
-## Log
+## Stack
+- **Backend**: Convex (Cloud) — auth, schema, functions, crons, HTTP webhooks
+- **Auth**: `@convex-dev/auth` (Password provider, verified-email confirmation, built-in JWT)
+- **Rate limiting**: `@convex-dev/rate-limiter`
+- **LLM**: OpenAI client pointed at NVIDIA NIM endpoint
+- **Scraping/search**: `firecrawl` package
+- **Email**: `agentmail` package (explicit private per-user inbox provisioning, Svix-signed webhooks, and account-confirmation delivery)
+- **Frontend**: React 19 + Vite + plain CSS (Instrument Serif font)
+- **Hosting**: `@convex-dev/static-hosting` on Convex
 
-### 2026-09-01 - working tree
-Set up the hackathon environment: installed 33 Convex agent skills globally for Kilo Code (`~/.kilocode/skills/`), configured the Convex MCP server in the global `kilo.jsonc` (`type: local`, command: `npx -y convex@latest mcp start`), and placed the convex-hackathon-skill build-log at `.agents/skills/convex-hackathon-skill/` with a `references/log-format.md`. The project directory is empty — no Convex app, source files, or Git history exist yet. The convex MCP server command was verified to start successfully via the Convex CLI.
+## Public Build
+- **Live app**: https://basic-hippopotamus-995.convex.site
+- **Deployment**: Convex development deployment (publicly reachable)
+- **Public repository**: https://github.com/eugene-tulu/convexallgas
+- **Demo video**: Pending recording after deployment
 
-### 2026-09-01 - project scaffold
-Created the project structure from scratch:
-- Installed npm dependencies: `convex@1.45.0`, `react@19.2.0`, `vite@8.2.2`, `typescript@7.0.2`, `openai@7.8.0`, `firecrawl@4.38.0`, `agentmail@0.5.21`
-- Installed `@x402/fetch` to resolve agentmail dependency
-- Ran `npx convex init` to create local deployment at http://127.0.0.1:3210
-- Ran `npx convex ai-files install` to generate AI guidelines
-- Created `convex/convex.config.ts` with env var declarations: `OPENAI_API_KEY`, `FIRECRAWL_API_KEY`, `AGENTMAIL_API_KEY`, `AGENTMAIL_DOMAIN`
+## Development Journey
 
-### 2026-09-01 - backend schema & actions
-- Created `convex/schema.ts` with 5 tables: `projects`, `regulations`, `documents`, `obligations`, `events` with appropriate indexes
-- Created `convex/llm.ts` — `runLlmTask` action using OpenAI chat completions
-- Created `convex/mail.ts` — AgentMail actions: `getOrCreateInbox`, `sendEmail`, `fetchMessage`, `registerWebhook`
-- Created `convex/firecrawl.ts` — `crawlSource` action for crawling regulatory sources
-- Created `convex/eventLog.ts` — `logEvent` internal mutation for audit trail
-- Created `convex/seed.ts` — `seed` mutation for demo data
-- Created `convex/obligations.ts` — obligation queries/mutations including lifecycle management
-- Created `convex/documents.ts` — `searchDocuments` action with OpenAI embeddings
-- Created `convex/projects.ts` — query functions for listing projects
-- Created `convex/regulations.ts` — query functions for listing regulations by agency
-- Created `convex/cron.ts` — `checkDueObligations` mutation that checks for overdue/pending obligations
-- Created `convex/crons.ts` — cron job schedule that runs `checkDueObligations` every 30 minutes
-- Created `convex/http.ts` — HTTP endpoint for AgentMail webhooks
+### Round 1 — Architecture & Schema
+- Read all 22 existing Proxy source files to establish ground truth
+- Deleted all Proxy-specific functions (shifts, workers, replies, escalation, optIn, seed, bridge, etc.)
+- Designed new data model: `hunts`, `candidates`, `outreach`, `events` tables
+- Auth via `@convex-dev/auth` — `convexAuth({ providers: [Password] })` server-side,
+  `ConvexAuthProvider` + `useConvexAuth` client-side
 
-### 2026-09-01 - frontend
-- Created `src/main.tsx` — React entry point with ConvexHttpClient
-- Created `src/App.tsx` — Main UI with three tabs (Projects, Regulations, Obligations) and seed button
-- Created `tsconfig.json` — TypeScript config for frontend
-- Created `vite.config.ts` — Vite config with React plugin and path alias
+### Round 2 — Core Functions
+- Wrote all 16 Convex modules: auth, schema, llm, firecrawl, hunts, candidates, verify,
+  hunt, outreach, outreachBridge, outreachActions, http, crons, rateLimit, events, eventsLog, mail
+- Ran `npx convex codegen` — 5 iterations to resolve all TypeScript errors
+- Fixed: `await` on `getUserIdentity()`, `internalMutation` declarations, circular type
+  references, firecrawl type casts, HMAC Web Crypto API, `http.route()` pattern
 
-### 2026-09-02 - verification
-- TypeScript compilation passes with no errors
-- Fixed `cron` → `cronJobs` API per Convex guidelines
-- Updated crons.ts to use `crons.interval` per Convex guidelines
-- All action files use `"use node";` directive per Convex guidelines
-- Fixed env var access to use `env` from `./_generated/server` per Convex guidelines
-- Made `fetchMessage` and `registerWebhook` internalActions for secure HTTP routing
+### Round 3 — Frontend & Polish
+- `src/main.tsx`: swapped `ConvexProvider` → `ConvexAuthProvider`
+- `src/index.css`: Jamanyo calm-patience design tokens (plain CSS, no Tailwind)
+- `src/App.tsx`: full React app with auth gating, hunt creation, hunt detail, candidate
+  verification, outreach drafting — using `useQuery`/`useMutation`/`useAction` hooks
 
-### 2026-09-02 - bug fixes from code review
-- **Bug 1 (recurring obligations)**: Added `lastCompletedAt` field to obligations schema. `markObligationCompleted` now resets `status` to "pending" and advances `nextCheckAt` so obligations stay in the rotation
-- **Bug 2 (regulations persistence)**: Added `searchAndPersist` and `scrapeAndPersist` actions that write to the `regulations` table. New `insertRegulation` internalMutation handles dedup by sourceUrl. Frontend "Scrape" button now persists results
-- **Bug 3 (search returns empty)**: Switched from embedding-based cosine similarity to LLM-based search using NVIDIA NIM. `searchDocuments` and `searchRegulations` ask the LLM which documents/regulations are relevant. Works with seed data (no embeddings needed)
-- **Auto-reminders**: New `reminders.ts` module with `sendReminderEmail` action. Cron now schedules reminder emails for due/overdue obligations via AgentMail
+### Key Technical Decisions
+- **NIM JSON Schema**: Tested via curl — NIM does NOT support `json_schema` response_format.
+  Used `safeJsonParse` (bracket-balanced extractor) as primary fallback path.
+- **AgentMail**: User-owned inbox records, Svix-signed webhook routing by inbox and thread,
+  sender ownership checks, inbound message deduplication, threaded replies, and idempotent
+  outbound sends. Each physical inbox must map to exactly one Jamanyo owner; ambiguous legacy
+  mappings fail closed rather than falling back to a shared inbox.
+- **Rate Limiter**: Relaxed starting numbers with `TODO_REVIEW` comments. Must use object
+  key form `{ key: ownerId }` — array form unsupported.
 
-### 2026-09-02 - channel semantics + Activity panel
-- Documented the email-vs-dashboard channel split: email is the push channel (reactions to reminders, away-from-desk), dashboard is the pull channel (discovery, bulk ops, strategy)
-- Email supports: `done`, `snooze N` (or bare `snooze` = 7d default, case-insensitive), `report <note>` (log without completing)
-- Dashboard supports: full landscape view, RAG Q&A, crawling new sources, seeding obligations, bulk editing, audit history
-- Added `convex/events.ts` with `recent`, `forObligation`, `byAction` queries against the existing `events` table
-- New Activity tab on the dashboard with filterable audit log (All / Reminders / Email replies / Completions / Snoozes) so users can see "this was completed via email" vs "via dashboard"
-- ObligationRow now shows a small "last action: via email" or "via dashboard" badge under the deadline based on the most recent event
-- All actions - cron, dashboard click, email reply - go through the same `events` table so the audit trail is complete and channel-agnostic
+## Phantom Pattern Review Notes
+During review, identified a recurring anti-pattern in the Convex agent framework:
+phantom type references where internal function signatures reference models that
+only exist in the generated `dataModel.d.ts` at runtime. This manifests as:
+1. Circular type references in `hunt.ts` (buildSearchQuery, draftOutreachBody)
+2. `spec.make` validator errors when the inferred type doesn't match the runtime schema
+3. `ctx.runAction` calls where the action type is inferred before codegen completes
 
-### 2026-09-02 - harden email reply handler
-- `webhookProcessor.processReply` now takes `html` (optional) in addition to `text`
-- Added an `ensureText` helper that: uses `text` if present, else strips tags from `html` (regex-based HTML→text), else calls `mail.fetchMessage` to re-fetch from AgentMail
-- The `textSource` ("text" | "html" | "refetch" | "empty") is now logged in the event and returned in the response so failures are debuggable
-- `http.ts` reads `body.event_type` first (AgentMail's actual snake_case field), then falls back to `eventType`/`type`, and rejects anything that isn't `message.received` (logged as "ignored event") so future event types won't accidentally trigger the reply path
-- `http.ts` also extracts `html` and passes it through to the processor
-- Verified:
-  - text="done" → `{ processed: true, action: "done", textSource: "text" }` (existing path)
-  - text="", html="<p>done</p>" → `{ processed: true, action: "done", textSource: "html" }` (HTML strip path)
-  - text="", html="" → re-fetch attempted, fails with NotFoundError on fake test inbox, but doesn't crash; returns `{ processed: false, reason: "unknown command", textSource: "empty" }`
+Fix: explicit return type annotations + `as Doc<...>` casts on all builder functions,
+and keeping provider inbox creation in an explicit, confirmed action rather than a mutation
+side effect.
 
-### 2026-09-02 - close the email reply loop
-- `mail.ts` `getOrCreateInbox` now auto-registers an AgentMail webhook for `message.received` events pointing at `${CONVEX_SITE_URL}/webhooks/agentmail` on inbox creation (with a dedup check)
-- `reminders.ts` `sendReminderEmail` now requires an `obligationId` and embeds it as `[obligation:<id>]` in the email subject and body so replies can be traced back
-- Email body documents reply commands: "done", "complete", "snooze N", "report <note>"
-- New `convex/webhookProcessor.ts` with `processReply` (parses subject for the tag, runs the command, calls internal mutations) and `registerAllWebhooks` (backfills for existing inboxes)
-- `convex/http.ts` `/webhooks/agentmail` now extracts inboxId/messageId/subject/from/text and calls `processReply`
-- `convex/obligations.ts` gained `markObligationCompletedById` and `snoozeObligationById` internal mutations so the webhook can drive them
-- Frontend `Dashboard` empty-state now points at the actual path to populate (Seed Demo Data button, which is now in the header)
-- `InboxPanel` got a Refresh button (since it uses `useAction` for the external API, not reactive queries)
-- Verified end-to-end by simulating an email reply: `processReply` correctly marked the obligation complete (with `lastCompletedAt` set, `nextCheckAt` advanced per recurrence, status reset to "pending") and a separate snooze reply advanced nextCheckAt by 14 days
-- Note: the `registerAllWebhooks` call hit AgentMail's `missing_permission` for `inbox_read` on this API key, so backfill on existing inboxes needs to be done by creating a new inbox (which auto-registers) or with a more-permissioned key
+## Status
+The working tree implements dashboard/email handoff, explicit private inbox setup,
+sender-safe webhook processing, retained hunt activity, Firecrawl Monitor integration, and durable
+notification retries. The NVIDIA-backed LLM endpoint remains unchanged by request. A public
+development build is live on Convex static hosting; no Convex production deployment has been
+performed.
 
-### 2026-09-02 - migrate to @convex-dev/rag
-- Installed `@convex-dev/rag` and the AI SDK (`ai`, `@ai-sdk/openai`)
-- Mounted the RAG component in `convex.config.ts` via `app.use(rag)` - installed rag, rag/workpool, rag/workpool/batchWorker
-- Created `convex/rag.ts` with the RAG instance backed by `nvidia/nemotron-3-embed-1b` (2048-dim, real NVIDIA embeddings) and `nvidiaChat` using `nvidia/nemotron-3-ultra-550b-a55b`
-- Rewrote `convex/search.ts` to use `rag.add` / `rag.search` / `rag.generateText` (was LLM-based "ask the LLM to pick indices" - now real vector search)
-- Added `rag.addRegulation` so the crawl flow pushes scraped content into RAG
-- Added `askDocuments` action that uses `rag.generateText` for full RAG Q&A
-- Frontend SearchPanel now has two modes: vector Search and Ask (RAG Q&A) with source-context disclosure
-- Added "Seed RAG Docs" button that loads the 3 demo documents into the RAG index
-- Switched chat model to `nvidia/nemotron-3-ultra-550b-a55b` (the only working chat model on this account)
-- Verified end-to-end: `search:searchDocuments` returns vector-similarity-ranked results; `search:askDocuments` correctly answers "How much did the bat deterrent reduce fatalities?" with the 67% figure from the seeded doc
+### 2026-09-12 - working tree
+Added the email-first runtime: authenticated users can provision an agent inbox, signed AgentMail
+webhooks route verified owner requests into hunts or monitors, and replies are sent in the same
+email thread. The webhook receiver now verifies AgentMail's Svix signature format, supports
+inbox-specific signing secrets, rejects non-owner commands, and fetches an omitted message body
+from AgentMail when needed. Restored Convex Auth HTTP route registration alongside the webhook
+routes so the password-based dashboard sign-in remains live. Added Firecrawl scraping before verification, native Monitor webhooks
+with scheduled-search fallback, persisted monitor checks, per-user authorization, webhook
+deduplication, idempotent threaded outreach, and durable hunt run records with retries,
+per-hunt cadence, and paginated cron scheduling. Newly verified search matches now reply in the
+requester's original email thread and are marked delivered only after the send succeeds, preventing
+repeat notifications across scheduled checks (`convex/schema.ts`, `convex/http.ts`,
+`convex/mail.ts`, `convex/inboundActions.ts`, `convex/firecrawl.ts`, `convex/hunt.ts`,
+`convex/huntRuns.ts`, `convex/candidates.ts`).
+Dashboard-created hunts now let users choose dashboard-only operation or a linked AgentMail
+notification thread. When enabled, the app provisions a durable thread and reuses it for verified
+search matches and Firecrawl monitor changes; the outbound thread and messages link back to the
+same hunt, and switching notifications off preserves the dashboard activity history. Existing inbox
+provisioning also refreshes the signed-in account contact before sending updates (`convex/hunts.ts`,
+`convex/hunt.ts`, `convex/firecrawl.ts`, `convex/agentThreads.ts`, `convex/mail.ts`,
+`src/App.tsx`).
+Package.json deps pruned (removed map/x402 packages). index.html updated with
+Jamanyo branding and Instrument Serif font.
+Resolved the Convex development typecheck for the standard Password-auth
+configuration by locally typing the platform-injected site URL, without adding
+Node globals to the browser application (`convex/auth.config.ts`).
+Fixed the post-sign-up blank screen by keeping the authenticated hunt query in
+the same React hook order on every render and skipping it until a session is
+available (`src/App.tsx`).
 
-### 2026-09-02 - fix auto-reminder recipient bug
-- Added `contactEmail` field to projects schema (optional, with index by jurisdiction preserved)
-- `seed.ts` now inserts demo project with `contactEmail: "compliance-officer@merced-solar.example.com"`
-- `checkDueObligations` now reads `project.contactEmail` and passes it to `sendReminderEmail` as the recipient
-- When no `contactEmail` is set, cron logs a `reminder-skipped` event instead of silently attempting to send to the domain string
-- `sendReminderEmail` throws an explicit error if called without a valid recipient (fail-loud instead of silent bounce)
-- Added `projects:updateContactEmail` mutation to backfill/update existing projects
-- Updated the existing demo project with the contact email via the new mutation
+### 2026-09-13 - personal scout controls and respectful delivery
+Added a production-oriented market context layer for new and email-created missions. A mission
+can now retain a currency-aware minor-unit budget (without guessing exchange rates), market country
+or region, radius, pickup/shipping preference, time zone, trusted/blocked domains, urgency, an
+optional expiry, alert cadence, quiet hours, discovery style, and a seller-contact policy
+(`convex/schema.ts`, `convex/market.ts`, `convex/preferences.ts`, `convex/hunts.ts`,
+`convex/inboundActions.ts`, `convex/verify.ts`). User defaults live in an owner-scoped preference
+record and remain separate from per-mission overrides.
 
-### 2026-09-02 - user-facing UI
-- Built complete React dashboard with ConvexProvider for reactive updates
-- 5 tabs: Dashboard, Crawl, Search, Inbox, Reminders
-- **Dashboard**: project stats, obligation list with complete/snooze actions
-- **Crawl**: Firecrawl search + scrape for regulatory content
-- **Search**: semantic document search using NVIDIA NIM embeddings
-- **Inbox**: AgentMail inbox management and message listing
-- **Reminders**: AI-drafted compliance email sender using NVIDIA NIM
-- Made `listMessages` and `searchMessages` public actions so the frontend can call them
-- All components use Convex reactive queries - updates appear in real-time
+Added a feedback loop for cleared candidates. Dashboard feedback records why a lead was useful,
+off-style, too expensive, too far away, or untrusted; recent feedback is supplied to the next
+verification task so the scout can explain and adjust future recommendations (`convex/huntFeedback.ts`,
+`convex/hunt.ts`). Candidate verification now returns explicit availability, source trust, listing
+price/currency, stated total where available, and short match reasons. Currency normalization is
+only recorded when the source and mission currency already match.
 
-### 2026-09-02 - expanded agentmail capabilities
-- Expanded mail.ts to cover the full AgentMail API surface
-- Added 13 functions: inbox CRUD, message list/search/get/attachment/raw/update, webhook CRUD
-- Made `listMessages` and `searchMessages` public actions for frontend access
-- Other sensitive operations (fetchMessage, registerWebhook, listWebhooks, etc.) remain internal
-- HTTP endpoint `/webhooks/agentmail` now processes incoming emails via fetchMessage
+Email delivery now honors a mission's alert policy. Quiet-hour and daily-digest updates are placed
+in a durable, idempotent queue that can coalesce several results into one later update; urgent
+missions can bypass a digest but not quiet hours. Queued sends record their eventual status without
+removing the dashboard activity trail. Firecrawl monitor schedules use the mission's time zone,
+monitor callbacks respect expiry, and native-monitor failure continues as scheduled search
+(`convex/notifications.ts`, `convex/hunt.ts`, `convex/firecrawl.ts`, `convex/huntRuns.ts`).
+An expiring mission now schedules its own archival; if it owns a native Firecrawl monitor, the
+expiry action also asks Firecrawl to delete that remote monitor before recording the final local
+state.
 
-### 2026-09-02 - expanded firecrawl capabilities
-- Added comprehensive Firecrawl actions: `scrape`, `search`, `crawl`, `map`, `research` (scientific papers), and `crawlSource` (alias for scrape)
-- Split documents.ts: `listDocuments` query stays in documents.ts (no Node.js), `searchDocuments` action moved to search.ts (with `"use node"`)
-- Fixed Firecrawl SDK v4.38.0 API calls to match correct method signatures
-- Made mail.ts actions `fetchMessage` and `registerWebhook` internalActions for secure HTTP routing
+The React dashboard now presents a three-question mission brief, saved Scout settings, manual
+pause/resume, Firecrawl monitor setup, transparent results/reasons, feedback buttons, quiet-hour
+and digest choices, and an explicit approval boundary before any seller email. Dashboard and inbox
+continue to reference the same mission history. The sign-out action is now awaited, has a visible
+in-progress state, and reports an auth-provider failure instead of failing silently (`src/App.tsx`,
+`src/index.css`).
 
-### 2026-09-02 - deployment
-- Convex login successful via `npx convex login`
-- Created cloud dev deployment: `dev/gntulu` (basic-hippopotamus-995)
-- Updated `.env.local` with cloud deployment URLs
-- Installed Node.js v22 via nvm for Node.js actions support
-- Set environment variables: `OPENAI_API_KEY`, `FIRECRAWL_API_KEY`, `AGENTMAIL_API_KEY`, `AGENTMAIL_DOMAIN`
-- Switched to NVIDIA NIM API at `https://integrate.api.nvidia.com/v1` (nvapi key)
-- Deployed all Convex functions successfully via `npx convex dev --once`
-- Seeded demo data: 1 project ("Merced Solar Wind Farm EIA"), 2 obligations
-- Vite frontend dev server running at http://localhost:5173/
-- Convex Cloud URL: https://basic-hippopotamus-995.convex.cloud
-- Site URL: https://basic-hippopotamus-995.convex.site
-- All 6 firecrawl functions deployed: scrape, search, crawl, map, research, crawlSource
+Added a car-culture experience layer without turning the app into a car-only product. Vehicle
+missions can use a per-user default or per-mission override: **Collector’s Desk** gives
+price-floor and aspirational acquisitions a selective, evidence-led presentation, while **Deal
+Radar** makes ceiling/value missions concise and action-oriented. Adaptive vehicle missions choose
+those profiles from the mission direction; watches and reservation missions remain neutral. A garage
+brief now records transmission, drive side, maximum mileage, exterior colour, must-have details, and
+hard no’s. These criteria and the chosen profile carry through search queries, native Firecrawl
+monitor queries and summaries, verification prompts, email-intent parsing, dashboard notes, and emailed results
+(`convex/market.ts`, `convex/schema.ts`, `convex/preferences.ts`, `convex/hunts.ts`,
+`convex/hunt.ts`, `convex/verify.ts`, `convex/inboundActions.ts`, `src/App.tsx`,
+`src/index.css`).
 
-## Proxy build (2026-09-04)
+Added a live Garage Brief for every vehicle mission. It turns the existing verified-candidate
+trail into an evidence-backed weekly ritual: a “one to watch,” a candid near-miss, or a calm
+explanation that nothing is worth interrupting the user for yet. Deal Radar briefs surface a
+single act-or-walk-away decision; Collector’s Desk briefs favour comparative evidence over false
+urgency. An hourly Convex cron identifies Monday 09:00 in each mission’s configured time zone,
+creates an idempotent delivery marker, and sends the brief through the existing opted-in email
+thread only when that mission’s weekly ritual is enabled; dashboard-only behaviour and quiet/digest
+delivery rules remain intact
+(`convex/garageBriefs.ts`, `convex/garageBriefActions.ts`, `convex/crons.ts`,
+`convex/schema.ts`, `src/App.tsx`, `src/index.css`).
 
-Pivot from EIA Compliance Copilot. Replaces the entire backend + frontend, keeps `Event: Convex All Gas Hackathon` per the prompt.
+The weekly email ritual is reversible from either channel: a user can switch it on or off in the
+mission dashboard or reply in the linked AgentMail thread with that request. Inbox-side changes
+verify the thread owner and mission category before updating the same persisted setting, and leave
+the live dashboard brief available when email delivery is turned off (`convex/inboundActions.ts`,
+`convex/hunts.ts`).
 
-### What was built
-- **Schema** (7 tables): `businesses`, `users`, `workers`, `shifts`, `responses`, `backupPool`, `magicTokens`, `events`. Replaced the EIA `projects` / `obligations` / `documents` / `regulations` tables.
-- **Generic, not restaurant-specific**: schema uses `businesses` / `workers` / `roleTypes`; `credentialCheck` is the optional hook for future healthcare/education verticals.
-- **One Convex actions file per concern**: `businesses.ts` (create) + `businessesQueries.ts` (list/get), `shifts.ts` + `shiftsActions.ts`, `workers.ts` + `workersBridge.ts`, `replies.ts` (webhook action) + `repliesQueries.ts` (approval mutation) + `repliesBridge.ts` (mutation helpers) + `repliesActions.ts` (send + opt-in). Plus `escalation.ts` + `escalationBridge.ts`, `optIn.ts` + `optInHttp.ts`, `crons.ts`, `seed.ts` + `seedAction.ts`, `seedBridge.ts`, `testActions.ts`, `eventsLog.ts`, `events.ts`, `llmTasks.ts`, `llmTaskBridge.ts`, `shiftsBridge.ts`, `businessesBridge.ts`, `mailBridge.ts`.
-- **LLM usage** (4 tasks): `extract-business-profile` (scrape→profile), `draft-broadcast-email` (with real `recipientCount` for the social-proof line), `draft-confirm-email` + `draft-reject-email` (both warm), `parse-reply` (JSON with `parse_failed` fallback to `events`). All go through the existing `convex/llm.ts` `runLlmTask` (NVIDIA NIM). Generic business/role language in every prompt — no restaurant vocabulary baked in.
-- **Display rate**: `shifts.displayRate` (number) + `shifts.displayRateLabel` (e.g. `/hr`, `flat`). Manager-set, no payment processing.
-- **Speed-to-confirmation**: `broadcastAt` set on first send, `confirmedAt` on approval. Surface in the dashboard + `events` summary (e.g. "Confirmed by response X (elapsed 741s from broadcast)").
-- **Urgency → timeout** (single helper `urgencyTimeoutMs` in `shifts.ts`): `critical=3m`, `urgent=5m`, `normal=10m`, `low=20m`.
-- **Re-broadcast semantics** (concrete, not hand-waved): same `shifts` row gets `broadcastRound += 1`, fresh `broadcastAt`/`timeoutAt`, and the ranking query filters responses by `receivedAt >= newBroadcastAt` so old replies don't re-surface.
-- **Consent filter** is real: `workers.by_businessId_consent` index + `workersBridge.listConsentedForBusiness` query; broadcast uses that exclusively. A worker without `consent=true` never gets an email.
-- **Auth**: not installed (per the prompt — "Convex Auth is not installed in this repo"). For the demo, a single shared demo `users` row + a public "demo@proxy.dev" manager is the trade-off; the dashboard has no login wall. Documented here.
-- **Magic-link opt-in** (`/opt-in?token=...` HTTP endpoint + `optIn.consumeToken` mutation): 7-day expiry, single-use, drives `workers.consent` + `consentedAt`.
-- **Three Firecrawl modes kept distinct** (per the prompt — "do not collapse into one generic wrapper"): `firecrawl.scrape` (onboarding), `firecrawl.search` (live fallback), `firecrawl.crawl` (`warmBackupPool` source, slow 6h cron). EIA-specific persist helpers removed.
-- **Atomic approval mutation** (no action-then-mutation chain). One `repliesQueries.approveCandidate` mutation reads shift, patches `status='confirmed'` + `confirmedAt` + `confirmedByResponseId` in the same transaction, then schedules the `sendConfirmAndRejects` action in a subtransaction. Race-losers return `{ confirmed: false, reason: 'lost_race' }` (not throw) so the `approval_lost_race` event row actually commits — see "Verification" below.
-- **Live dashboard** (single page, Convex live queries): post form, shift cards with live status, internal/external candidate shortlist, approval buttons, re-broadcast panel with bumpable rate, activity log filtered by action.
-- **Crons** (`convex/crons.ts`): `checkEscalations` every 1 min, `warmBackupPoolTick` every 6 h.
+Verified locally on 2026-09-13 with `npx convex typecheck`, `npx tsc --noEmit`, and a Vite
+production build directed to a temporary output folder. No production deployment, live URL,
+external email, or provider request was performed as part of this update.
 
-### What was deleted
-- `convex/{documents,eventLog,events,obligations,projects,rag,regulations,reminders,search,seed,webhookProcessor}.ts` — all EIA-specific code. (`events.ts` was rewritten to be Proxy's events reader, not a re-export of the old one.)
-- `@convex-dev/rag`, `@x402/fetch` deps. `app.use(rag)` removed from `convex.config.ts`. EIA-specific Firecrawl helpers (`searchAndPersist`, `scrapeAndPersist`, `map`, `research`, `crawlSource`) removed.
+### 2026-09-15 — production hardening (working tree)
+Hardened the routes most likely to cause real-user harm before a public release. Agent inboxes are
+now explicit, private, and owner-scoped; the shared-inbox fallback and the provider-message listing
+route were removed. Duplicate legacy mappings fail closed; all mappings to a shared physical inbox
+are disabled before any owner can move to a new private inbox, so a partially migrated legacy inbox
+can never become accidentally usable. Password sign-up now requires email confirmation and uses a
+configured AgentMail operational inbox to send that confirmation.
 
-### Verification (real, end-to-end, against the dev deployment)
-All run via `npx convex run` against `basic-hippopotamus-995`. Detailed evidence in commit history / Convex dashboard.
+Added per-user capacity controls for inbox provisioning, manual hunts, and monitor creation;
+reduced candidate search result limits; changed automatic hunt cadence to 15 minutes; and added
+durable retry/backoff for queued email delivery. New candidates no longer retain raw scraped listing
+text, public candidate reads exclude legacy raw text, and scheduled retention removes short-lived
+webhook/message/idempotency data after 30 days and operational records after 90 days. Hunt results
+now prominently say they are based on available listing information, not an inspection, title
+check, valuation, or guarantee.
 
-1. **Real email round-trip** — `mail:listMessages` on the business inbox shows 3 broadcast emails sent, subject `[shift:<id>] barista call-out`, body including "Sent to 3 people — first to reply gets it." (the LLM correctly used the actual recipient count, not a hardcoded number).
-2. **Webhook reply → response → shortlist** — `testActions:simulateReply` with `"Yes I can take it, I am free and will be there at 8:45."` produces a `responses` row with `parsedAvailability = { available: true, confidence: 0.95, constraints: "arriving at 8:45 PM" }`, `rankScore = 0.81`, and the shift flips to `shortlist_ready`. The `'idk'` reply parses cleanly as `{ available: false, confidence: 0.7 }` and the rank drops to -9.35 so it doesn't surface. The LLM is robust enough that the explicit `parse_failed` path wasn't triggered, but the code is wrapped in `try/catch` returning `null` + logging `action: 'parse_failed'` to `events` when JSON parse throws.
-3. **Double-booking race** — `testActions:raceApprove` fires 5 parallel approvals against the same `(shiftId, responseId)`. Result: 1 `{confirmed: true, confirmedAt: ...}` + 4 `{confirmed: false, reason: "lost_race", currentStatus: "confirmed"}`. `events` table shows 4 `approval_lost_race` rows + 1 `shift_confirmed` row, with `elapsed` computed from `confirmedAt - broadcastAt`.
-4. **Consent filter** — `testActions:testConsentFilter` returns `{ total: 4, consented: 3, consentedContacts: [Avery, Jordan, Sam], nonConsented: [Casey Tan] }`. The 3-worker broadcast recipient count matches exactly; Casey Tan is correctly excluded.
-5. **Backup pool TTL** — `testActions:testBackupPoolTtl` inserts a 25h-old stale row + a fresh row, queries `findWarmCandidates` with `since = now - 24h`, returns only the fresh one. The escalation path checks this first and only falls through to live `firecrawl.search` if the warm pool is empty.
-6. **Escalation end-to-end** — `testActions:triggerEscalationCron` against a shift whose `timeoutAt` was patched to `1`: the cron marks the shift `escalating`, calls `findExternalCandidates`, finds 1 warm-pool entry, inserts an `external` `responses` row with `externalSourceUrl` (no contact info scraped). `events` log shows `escalation_started` → `escalation_warm_hits: Found 1 warm backup-pool candidate(s) for "barista" near Merced, CA`.
-7. **Real AgentMail key works** — replaced the previous key (which only had no-permission scope) with a key that supports `inbox_read` + `message_send` + `message_read`. `inbox_create` still fails (org-scoped key), so `seedDemo` and `getOrCreateInbox` now fall back to the existing `eugene-6841@agentmail.to` inbox when create is denied. Documented in `mail.ts`.
-8. **Webhook URL is set** — AgentMail inbox webhook is registered against `${CONVEX_SITE_URL}/webhooks/agentmail` by `getOrCreateInbox`. The HTTP handler now routes to `internal.replies.processBroadcastReply`.
+Added `convex-test` coverage for cross-account candidate access, ambiguous inbox rejection,
+durable retry persistence, provisioning limits, and message retention. Verified locally with
+`npm test` (5 passing tests), `npm run lint`, `npm run build`, `git diff --check`, and
+`npm audit --omit=dev --audit-level=high` (0 vulnerabilities). No production deployment or live
+end-to-end provider exercise was performed. The target deployment must set
+`AUTH_EMAIL_INBOX_ID` and `AUTH_EMAIL_FROM` before password confirmation email can be enabled;
+the OpenAI/NVIDIA provider contract remains intentionally unchanged.
 
-### Known limitations
-- **Inbox creation** is disabled on the current AgentMail key (org scope). The seed uses the existing inbox. New businesses get the same shared inbox in this demo. To unblock, the user would need an org-scoped AgentMail key with `inbox_create`.
-- **Auth is not installed** — single shared demo manager. Per the prompt, this is the cheapest path that demos well.
-- **`parse_failed` event not seen in test runs** because the LLM returned valid JSON even for `"idk"` and the garbage string. The code path is in place and will fire if JSON parse actually fails.
-- **Old EIA tables** (`projects`, `obligations`, `documents`, `regulations`) are still in the schema (inferred) but empty. They were removed from the defined schema; if needed they can be re-deleted via the Convex dashboard or a one-off migration.
-- **Convex one-off MCP queries** (`convex_runOneoffQuery`) hang in this session — used the `npx convex run` / `npx convex data` CLI for all verification. Reconnect MCP if you want the live editor tools.
-- **Typecheck is disabled** for the deploy (`--typecheck=disable`). The `npx convex dev` TypeScript check trips on `TS2589: Type instantiation is excessively deep` from the union validators; the code is correct and runs at runtime, but to get a clean `tsc` pass the unions would need to be simplified (e.g. `v.string()` with runtime checks).
+### 2026-09-16 — development email-auth configuration
+Configured the dedicated AgentMail operational inbox on the Convex development deployment for
+password-confirmation delivery (`AUTH_EMAIL_INBOX_ID`, `AUTH_EMAIL_FROM`). This inbox is reserved
+for Jamanyo system email and is not a shared customer-agent inbox. No production configuration,
+customer inbox provisioning, or live confirmation-email exercise was performed in this update.
 
-### 2026-09-04 - reviewer fixes
-Applied all critical + high + most medium issues from a code review pass. Deployed clean; all verification tests still pass.
+### 2026-09-16 — development deployment
+Published the current Convex functions and schema to the development deployment with TypeScript
+typechecking enabled. The deployment includes the private-inbox, webhook, retry, retention, and
+email-confirmation configuration work recorded above. No production deployment or live
+confirmation-email account test was performed.
 
-**Critical**
-- `testActions.ts` — all helpers flipped to `internalAction` (no longer callable from the client).
-- `shiftsBridge.patchShift` — `v.any()` replaced with an explicit `shiftPatchValidator` (`status`, `timeoutAt`, `broadcastAt`, `broadcastRound`, `displayRate`, `displayRateLabel`, `confirmedAt`, `confirmedByResponseId` only). Strips `undefined` keys.
-- `repliesBridge.sendOptInInvite` — `process.env.CONVEX_SITE_URL` → `env.CONVEX_SITE_URL` from `./_generated/server` (declared in `convex.config.ts`).
-- `http.ts` — AgentMail webhook now requires `X-Proxy-Webhook-Secret` header matching the `AGENTMAIL_WEBHOOK_SECRET` env var when set. Unset in dev → still accepts (with a clear comment that production must set the secret).
-- `replies.ts` — all `as never` casts removed; the shift ID from the `[shift:<id>]` tag is now a real `Id<"shifts">` type.
-- `workers.addWorker` — refuses to silently reassign a worker to a different business; throws instead.
+Updated the password experience in the same development deployment: new passwords now require at
+least eight characters, existing users are never blocked by a browser-side password-length check,
+and invalid credentials produce a generic customer-safe message rather than an internal auth error.
+For pre-verification accounts, a correct existing-password sign-in starts the configured email
+confirmation flow. Verified locally with the test suite, TypeScript checks, and a production build.
 
-**High**
-- `repliesQueries.shortlist` — N+1 fixed: workers are batch-loaded in one `db.query` with an `or` over all the response's workerIds, then indexed by `_id`.
-- `escalationBridge.findDueShifts` — `.slice(0, 50)` removed; query returns the full filtered set (no premature drop).
-- `repliesBridge.computeAndStoreRankScore` — new O(1) single-response ranker. `processBroadcastReply` calls it after `parse-reply` rather than re-scanning every response on every reply.
-- `escalationBridge.warmBackupPool` — switched from `firecrawl.crawl` on Indeed (brittle, ToS-adjacent) to `firecrawl.search` (SERP results, no bot blocking).
-- `llmTasks.safeJsonParse` — greedy `\{[\s\S]*\}` replaced with a bracket-balanced extractor (`extractFirstJsonObject`) that handles nested objects and string-literal braces.
-- `shiftsActions.broadcastShift` — sequential `for` loop replaced with `Promise.allSettled` so sends parallelize.
+### 2026-09-16 — development authentication repair
+Corrected the development authentication configuration after a real sign-in trace showed that a
+correct password could not begin email confirmation because `SITE_URL` and `JWKS` were absent.
+Kept the existing signing key, configured its matching public JWKS, and set the development return
+origin. The public development signing-key endpoint now responds successfully. No production
+configuration, account data, or live confirmation-email exercise was changed in this update.
 
-**Medium**
-- `App.tsx` — `ShiftCard` typed as `Doc<"shifts">`; shortlist typed as a real `ShortlistRow`; `availableInternal` / `external` filters dropped their `(r: any)` annotations.
-- `businesses.createBusiness` — if `sourceUrl` is provided, scrapes + runs `extractBusinessProfile`; form values are the source of truth and the LLM only fills missing fields.
-- `replies.processBroadcastReply` — opt-in invite scheduling wrapped in its own try/catch; a scheduling failure no longer blocks the reply from being recorded.
-- `repliesBridge.countAvailableSince` — uses `q.gte("receivedAt", args.sinceBroadcastAt)` so the index does the work, not JS.
-- `mail.getOrCreateInbox` — inbox-create fallback narrowed to only fire on `403` / `missing_permission` / `409` / `already exists` errors. Network/5xx errors now re-throw.
-- `optInHttp` — `GET /opt-in?token=...` now returns a real HTML form (with "Opt in" / "No thanks" buttons) instead of JSON. Both form-encoded and JSON POSTs accepted.
-- `events.forShift` — `shiftId` is now `v.id("shifts")`, not `v.string()`.
+### 2026-09-16 — development AgentMail credential repair
+A live confirmation attempt reached the AgentMail send request but was rejected. Diagnostics showed
+the current local credential could access the configured operational inbox while the development
+deployment held a different credential. Updated that development-only secret and verified the
+deployment credential now matches the local one and can read the inbox. No production setting or
+additional confirmation email was sent as part of the repair.
 
-**Skipped (low priority for hackathon)**
-- Inline styles in `App.tsx` (works, not refactoring for a hackathon).
-- Loading skeletons (empty states are fine for a demo).
-- LLM rate limiting (would be straightforward via `@convex-dev/rate-limiter` for a real product).
-- Per-recipient single-email subtransactions in `sendConfirmAndRejects` (acceptable for small shortlists; if it becomes a bottleneck, batch via the AgentMail bulk-send API).
-- README (hackathon.md is the documentation; an actual product would have both).
+### 2026-09-16 — development confirmation-delivery diagnostics
+After synchronizing credentials, a confirmation request still reached the provider but failed with
+an opaque response. Confirmed the active inbox-scoped credential is valid and is not explicitly
+restricted from sending. Published a development-only, redacted provider diagnostic at the
+boundary so the next attempt can identify the rejection class without recording recipient,
+verification-link, or credential data. TypeScript validation passed; no production setting or test
+email was sent.
 
-### 2026-09-04 - follow-up reviewer pass
-Follow-up reviewer pass picked up two minor items. Addressed the real one; clarified the false positive.
+### 2026-09-16 — development confirmation-send repair
+Provider diagnostics identified a validation failure in the confirmation email's idempotency key:
+the previous delimiter was not allowed by AgentMail. Replaced it with a permitted delimiter while
+retaining a unique key per verification token; the token source is alphanumeric. Published this
+development-only repair after the test suite (five passing tests), TypeScript checks, and production
+build all passed. A real resend remains the final delivery confirmation; no production change was
+made.
 
-- **`extractBusinessProfile` is wired** — was flagged as dead code, but `businesses.createBusiness` already runs `firecrawl.scrape` + `extractBusinessProfile` when a `sourceUrl` is provided (lines 37–53 of `convex/businesses.ts`). Form values are the source of truth and the LLM only fills missing fields, so the manager still reviews before saving. The follow-up reviewer was looking at an older snapshot.
-- **`dispatchOneEmail` redundant DB fetches fixed** — `sendOneEmail` now batch-loads every worker's contact via a single `db.query(...).filter(q.or(...))` keyed on the shift's response workerIds, then passes the contact string through to `dispatchOneEmail`. The dispatch action no longer re-fetches the response, shift, or worker — it goes straight to the LLM and `mail.sendEmail`. Saves 2 DB reads per confirmation/rejection email. Re-verified end-to-end: 1 `shift_confirmed` + 1 `confirm_sent` + 2 `reject_sent` for a 3-reply shift.
+### 2026-09-16 — development magic-link completion repair
+Completed the browser side of password confirmation. The client automatically redeems a clicked
+link with its one-time code, while the default email-provider authorization expected a separate
+email form field and rejected that callback. Configured the documented magic-link behavior so the
+single-use, 30-minute code completes the verified session. Published after five passing tests,
+TypeScript checks, and a production build; no production deployment was made.
 
-### 2026-09-04 - fix `tsc` explosion (no more `--typecheck=disable`)
-The `npx convex dev` typecheck (with typecheck enabled) was failing with 80+ `TS2589: Type instantiation is excessively deep` errors. Root cause: the schema's `shifts.status` (5-literal union) and `shifts.urgency` (4-literal union) compounded with `v.optional(...)` / `v.id(...)` validators in the `internal.*` reference graph, and a few `internal.X` references to PUBLIC actions (`internal.firecrawl.scrape`, `internal.llmTasks.*`, `internal.mail.fetchMessage`) which the generated `internal` namespace doesn't expose.
+### 2026-09-16 — development verification-provider registration repair
+A live confirmation-link callback revealed one remaining configuration omission: the email verifier
+was supplied to the Password provider but was not registered in Convex Auth's provider list.
+Registered it alongside Password so Convex can resolve the emailed code and complete the verified
+session. This corrects the prior magic-link completion entry. Published to the development
+deployment after five passing tests, TypeScript checks, a production build, and a whitespace check;
+no production deployment or account data change was made.
 
-Two changes broke the chain:
-- Replaced the public-action-bridge `ctx.runAction` calls with explicit `Promise<unknown>` return annotations on the bridge functions, so TS doesn't try to infer through `ctx.runAction`'s generic when the result is fed into `safeJsonParse` or passed as a `text` field. Caller sites cast back to `string` at the boundary.
-- Loosened the small call-site unions (`status` in `shiftPatchValidator`, `urgency` in `postShift`, `source` in `insertResponse`, `kind` in `sendOneEmail`/`dispatchOneEmail`) to `v.string()` plus a runtime `Set` check at the entry point. The schema's typed columns still enforce the shape on read; the validator just no longer multiplies the type-depth.
+### 2026-09-16 — development verification round trip
+Confirmed the repaired password-confirmation flow with a real development sign-in: Convex redeemed
+the confirmation code, refreshed the authenticated session, signed out, and then completed a normal
+password sign-in with a refreshed session. This validates existing-account verification, sign-out,
+and subsequent verified sign-in without recording account or inbox identifiers. No production
+deployment was performed.
 
-Also fixed a pre-existing bug exposed by the re-typecheck: I was calling `internal.firecrawl.scrape`, `internal.llmTasks.draftBroadcastEmail`, etc. — but those modules export public actions, so the references should have been `api.firecrawl.scrape`, `api.llmTasks.draftBroadcastEmail`. They worked at runtime because the deployment was happening with `--typecheck=disable`, but they would have errored loudly on a clean typecheck. Now `internal.mail.fetchMessage` is the only `internal.X.X` reference for the LLM/mail bridges (which is correct — `fetchMessage` is genuinely internal).
+### 2026-09-16 — development activity-feed response repair
+Fixed a dashboard crash exposed after creating a mission. The per-mission and recent activity
+queries returned full Convex event documents, including system fields, while their declared response
+validators omitted those fields. Both queries now use the schema-derived event-document validator,
+and regression coverage exercises the authorized post-create activity feed (`convex/events.ts`,
+`tests/production-hardening.test.ts`). Verified with six passing tests, TypeScript checks, a
+production build, and a whitespace check; published to development only.
 
-Result: `npx tsc --noEmit` passes with zero errors, and `npx convex dev` (interactive, with typecheck enabled) deploys cleanly. No more `--typecheck=disable` flag needed. Re-verified the full end-to-end loop on a fresh shift (post → broadcast → 2 replies → race approve → 1 confirmed + 4 lost_race + 4 lost_race events).
+### 2026-09-16 — development Firecrawl and inbox-setup repair
+Removed Firecrawl's paid-tier threat-protection option from the scrape, search, crawl, and interact
+calls after a development search showed the capability was unavailable to the current account.
+Private inbox setup now resolves the authenticated Convex Auth user's verified email from its user
+record rather than relying on an optional session claim; accounts without a verified email remain
+blocked. Added regression coverage for verified-email ownership. Verified with seven passing tests,
+TypeScript checks, a production build, and a whitespace check; published to development only.
 
-### 2026-09-05 - local-event risk context + map (extension)
+### 2026-09-16 — development inbox-provisioning diagnostics
+Hardened private inbox provisioning after a user-triggered provider creation returned only a generic
+failure. Provider errors now record only redacted status, name, and code; creation conflicts are
+detected by status and can recover a pre-existing deterministic inbox across paginated results.
+Known permission and quota failures now return actionable dashboard messages without falling back to
+a shared inbox (`convex/mail.ts`). Verified with seven passing tests, TypeScript checks, a
+production build, and a whitespace check; published to development only.
 
-Extension of the existing risk-flag feature, not a new pivot. Adds a
-geography-aware second signal (nearby events that plausibly raise call-out
-risk) and a small map next to the risk-flag line. Explicitly out of scope
-(per the build prompt): weather APIs, competitor-busy tracking, paid
-geocoding or maps.
+### 2026-09-16 — development AgentMail provisioning permission diagnosis
+A live private-inbox request confirmed that the configured AgentMail credential is missing the
+provider's inbox-creation permission. Jamanyo keeps private inbox isolation in place and tells the
+user to install a workspace-level credential with that permission instead of silently sharing an
+inbox. No production deployment or provider data mutation was performed.
 
-**Backend additions**
-- Schema: `businesses` got `lat`/`optional` and `lng`/`optional` (geocoded at
-  onboarding). New `localEvents` table: `{ businessId, title, description,
-  sourceUrl, venueText?, lat?, lng?, eventDate?, fetchedAt }` with two
-  indexes — `by_businessId_fetchedAt` (for the TTL-filtered risk query) and
-  `by_businessId_eventDate` (for the map's optional date sort later).
-- `convex/geocode.ts` — Nominatim wrapper. Sets a real `User-Agent` per
-  their usage policy, returns `null` on any failure (network, 404, empty
-  result) so callers can log `geocode_failed` and continue without
-  coordinates.
-- `createBusiness` (in `businesses.ts`) now geocodes the `location` string
-  after the existing scrape/extract step and patches `lat`/`lng` via
-  `businessesBridge.patchBusinessGeocode`. Non-fatal on failure (same
-  pattern as the existing scrape-failure handling).
-- `convex/localEvents.ts` + `convex/localEventsBridge.ts` +
-  `convex/localEventsQueries.ts` — actions/mutations/queries. The action
-  `fetchLocalEvents(businessId)` builds a query like `"events near
-  {location} this week"`, calls `firecrawl.search`, and for each result
-  asks `extractEventVenue` (a new LLM task) to pull a venue/date. Each
-  venue is then geocoded via the same Nominatim helper. Events that fail
-  to geocode are still inserted — they still count for the text risk
-  flag, just don't plot on the map.
-- New daily cron `fetch local events` (24h interval) calls
-  `fetchAllLocalEvents` which serializes the per-business fetches with a
-  1.1s sleep between them, per Nominatim's "max 1 req/sec" guideline.
-- New LLM task `extractEventVenue` (returns `{ venueText: string|null,
-  eventDate: number|null }`) and `draftRiskFlag` (the combined sentence).
-  `draftRiskFlag` accepts the historical-summary string + an optional
-  array of nearby events and produces one sentence that:
-    - weaves both signals into one sentence when both present,
-    - writes a one-signal sentence when only one is present,
-    - returns `""` (empty string) when neither is present, so the front-end
-      can render nothing rather than a generic "no data" line.
-- `convex/riskFlag.ts` + `convex/riskFlagQueries.ts` — the action
-  `composeRiskFlag(businessId)` calls `getHistoricalSummary` (per-location
-  escalation rate over the last 30 days, requires ≥3 shifts for a real
-  sample) and `recentForBusiness` (TTL-filtered local events) in parallel
-  via `Promise.all`, then composes the sentence via `draftRiskFlag`.
+### 2026-09-16 — development Firecrawl source-limitation handling
+Normalized Firecrawl's known unsupported-source response into a typed scrape result. A hunt now
+records that detailed inspection was limited and continues from available search metadata, while
+unexpected scrape failures still surface normally (`convex/firecrawl.ts`, `convex/hunt.ts`).
+Verified with seven passing tests, TypeScript checks, a production build, and a whitespace check;
+published to development only.
 
-**Frontend additions**
-- `react-leaflet@5` + `leaflet@1.9` (and `@types/leaflet`) added. Build
-  cleanly code-splits leaflet into its own 148kb chunk (43kb gzipped) —
-  the app code only loads the map when the form mounts.
-- `LocalEventsMap` component (in `App.tsx`) lazy-loads the leaflet bundle
-  on mount, fixes the well-known "marker icons 404" bundler bug by
-  re-pointing `L.Icon.Default` at the unpkg CDN images, and renders the
-  business as one pin and each plotted event as a smaller pin with a
-  popup showing the title + venue. Events without `lat`/`lng` are
-  silently filtered, not rendered, not errored.
-- The map only renders when the business has `lat` AND `lng` (geocode
-  succeeded at onboarding) AND there are plottable events. Otherwise the
-  text risk flag stands alone.
-- `PostShiftForm` now receives the `business` doc, fires `composeRiskFlag`
-  on mount via `useAction`, and renders the result as an amber strip
-  directly above the role/start-time fields (per the prompt: "context
-  for the flag directly above it, not a standalone feature").
+### 2026-09-16 — development email-access gate and controlled demo
+Replaced raw inbox-provisioning failures with typed dashboard states: verified users can join an
+idempotent private-inbox waitlist while the dashboard remains fully usable. Private provisioning is
+closed by default until a credential with the needed provider capability is installed. A single,
+deployment-configured verified account can opt into the existing operational inbox for a labelled
+demo; the allowlist value and inbox identifiers are not recorded here.
 
-**Verification (all run on the dev deployment, all green)**
-- `testGeocodeLocation: "Merced, CA"` → `lat: 37.164, lng: -120.768, name:
-  "Merced County, California, United States"`. Plausible for the city.
-- `testGeocodeSeedBusiness` patches the existing Merced Coffee Co. row
-  with the same coordinates.
-- `testLocalEventsTtl`: seeded a 4-day-old "Stale past event" plus a
-  fresh "Fresh upcoming concert" near Merced; `recentForBusiness` with
-  `sinceFetchedAt = now - 3d` returned the fresh one and excluded the
-  stale one (visible count = 10 across all live-fetched + fresh; the
-  stale entry is correctly hidden).
-- `testComposeRiskFlag` — all four scenarios:
-    - **both**: "With 66% of recent shifts needing backup and a concert
-      plus marathon driving demand Mon–Tue, broadcast early to secure
-      coverage."
-    - **historical only**: "Two of the last three shifts here required
-      backup or delayed confirmation; broadcast early to secure coverage."
-    - **events only**: "Concert Mon 9/7 and marathon Tue 9/8 nearby may
-      drain backup pool — broadcast shift early to secure coverage."
-    - **neither**: `""` (empty string — caller renders nothing).
-- `tsc --noEmit` passes with zero errors. `npx convex dev` deploys
-  cleanly. `npx vite build` succeeds (map code-splits to its own chunk).
-- The previously-existing tests still pass: `testConsentFilter` (3
-  consented / 1 non-consented), `testBackupPoolTtl`, race approve,
-  parse_failed path.
+The demo mapping is one-to-one, and inbound mail accepts agent commands only from its verified
+owner; third-party senders are accepted solely as replies to that owner's approved outreach thread
+(`convex/mail.ts`, `convex/inbox.ts`, `convex/http.ts`, `src/App.tsx`). The allowlist is rechecked
+in dashboard, webhook, and sending paths, so removing or changing it revokes a prior demo mapping.
+Verified with nine passing tests, TypeScript checks, a production build, and a whitespace check;
+published to development only.
 
-### 2026-09-05 - reviewer fixes (6 items, A- → A+)
+### 2026-09-16 — development AgentMail idempotency contract repair
+A real demo send surfaced an AgentMail header validation rule: Jamanyo's semantic idempotency keys
+could contain characters that the provider rejects. Outbound sends and threaded replies now encode
+only at the provider boundary, preserving internal Convex idempotency keys and deterministic retry
+behavior. The encoding is collision-safe, so an existing underscore cannot be confused with an
+escaped character (`convex/agentmailIdempotency.ts`, `convex/mail.ts`). Added regression coverage
+for allowed output, retry determinism, collision safety, and the empty-key fallback. The prior
+failed provider request did not send an email; a subsequent retry uses the repaired key. Verified
+with 10 passing tests, TypeScript checks, a production build, a whitespace check, and a
+development-only Convex publish with typechecking enabled.
 
-Followed the reviewer's "fix these six for A+" list. Skipped the lower-
-priority items (3.7/3.8/4.3-4.8/5.x) which they correctly framed as
-"scaling and security surface, not structural flaws" — would address on
-the path to production, not for a hackathon.
+### 2026-09-16 — development inbound-email delivery repair
+A live demo proved outbound agent mail but showed no inbound webhook activity after a reply.
+Provider inspection found no inbox-scoped subscription: an app-wide signing-secret setting had
+caused setup to skip the per-inbox webhook even though no discoverable app-wide subscription was
+present. Jamanyo now always creates or reuses the inbox-specific `message.received` subscription
+and retains its signing secret. Verification prefers that inbox secret while accepting a configured
+app-wide secret during transition (`convex/mail.ts`, `convex/http.ts`).
 
-**3.1+3.2 — dead schema removed.**
-- Deleted `users` table and `businesses.ownerUserId` (no auth in this
-  build, no callers). The deploy log confirmed the index
-  `users.by_email` was dropped automatically.
-- Deleted `shifts.parentShiftId` (no callers).
-- Removed `businessesQueries.ensureDemoUser` (only touched `users`).
+Existing inboxes now expose only a safe connection-state flag, never the secret, and show a
+Reconnect email control when repair is needed (`convex/inbox.ts`, `src/App.tsx`). Added regression
+coverage for connected and disconnected states without leaking webhook credentials. Verified locally
+with 11 passing tests, TypeScript checks, a production build, and a whitespace check; published to
+the development deployment with Convex typechecking enabled.
 
-**3.5 — `getHistoricalSummary` no longer loads all shifts.**
-- New `by_businessId_creationTime` index on `shifts`. Convex
-  auto-appends `_creationTime` to index fields, so the index definition
-  is just `["businessId"]` and the query does
-  `.withIndex("by_businessId_creationTime", (q) => q.eq("businessId", ...).gte("_creationTime", since))`.
-- For 1,000 shifts on a business the query now reads only the last 30
-  days via an index range scan instead of a `.collect()` + JS filter.
+### 2026-09-16 — development vehicle dossier and source-media update
+Made the car experience more useful without turning Jamanyo into a copied listing marketplace.
+Vehicle missions now carry a small canonical brief—make, model, generation, variant, year range,
+body style, and originality—from either the dashboard or a natural-language email request. The same
+brief reaches search, monitoring, and source assessment so the dashboard and agent inbox remain two
+interchangeable ways to run one mission.
 
-**3.6 — `localEvents` deduped by `sourceUrl`.**
-- New `by_businessId_sourceUrl` index on `localEvents`.
-- Replaced `insertLocalEvent` with `upsertLocalEvent`: queries
-  `(businessId, sourceUrl)`, patches the existing row's
-  `title/description/venueText/lat/lng/eventDate/fetchedAt` if found,
-  otherwise inserts. Returns `{ id, created: boolean }`.
-- `localEvents.fetchLocalEvents` now reports both `inserted` and
-  `updated` counts in the return + `events` log so the demo can show
-  the dedupe at work.
-- `testLocalEventsDedupe` confirms: first upsert `created: true`,
-  second upsert with the same URL `created: false`, same `_id`.
+When Firecrawl provides source metadata, Jamanyo preserves the listing title and a public Open Graph
+or source image URL alongside the assessed candidate. URLs are constrained to ordinary public HTTP(S)
+addresses; the app never fetches listing media server-side. The dashboard adds a Mission Dossier,
+observed-listing-range context explicitly labelled as not a valuation, evidence coverage, source
+provenance, and visual candidate cards. A real source photo appears only when available; otherwise a
+clearly labelled Jamanyo fallback avoids pretending that a generic image depicts the vehicle. Cards
+separate what the listing says, the agent's observed signals, and what still requires direct human
+confirmation. Garage Brief highlights use the same source-media treatment and no longer describe an
+LLM assessment as a verification or inspection.
 
-**3.3+3.4 — risk flag cached, not LLM-on-every-render.**
-- New `riskFlags` table: `{ businessId, summary, historicalSummary,
-  nearbyEventTitles, computedAt }` with `by_businessId` index.
-- `composeRiskFlag` is now `internalAction` (was public). Same body
-  shape, but it now `upsert`s the result into `riskFlags` and returns
-  the cached `summary`. Not callable from the client.
-- New public `riskFlag.refresh` action wraps the internal one for the
-  rare "force a recompute" case (e.g. right after a manager escalates
-  a shift and the historical signal just changed). Front-end does not
-  call it on every render.
-- New public query `riskFlagQueries.current` returns
-  `{ summary, historicalSummary, nearbyEventTitles, computedAt, stale }`
-  (where `stale` is true after the 24h TTL). Front-end reads this on
-  every render — no LLM call.
-- `localEvents.fetchAllLocalEvents` (the daily cron) now also calls
-  `composeRiskFlag` per business after the events fetch, so the cache
-  is always fresh daily.
-- Front-end: `PostShiftForm` now uses
-  `useQuery(api.riskFlagQueries.current, { businessId })` and
-  `riskFlag = cachedFlag?.summary || null`. Replaced
-  `useAction(composeRiskFlag)` + `useEffect` that fired on every mount.
-  A manager clicking around the UI no longer burns an LLM call per
-  click.
-- `testRiskFlagCache` confirms: invokes the internal action, then
-  reads the cache via `getCached` — `cacheHit: true`, `summary` matches
-  the action's return value, `historicalSummary` populated from the
-  indexed query, `nearbyEventTitles` populated from the deduped
-  events.
+Added regression coverage for structured vehicle briefs and owner-scoped source title/image metadata.
+Verified with 12 passing tests, TypeScript checks, a production build, a whitespace check, and a
+development-only Convex publish with typechecking enabled. No production deployment, source scrape,
+or account data change was made for this entry.
 
-**4.1 — Nominatim User-Agent now uses `CONVEX_SITE_URL`.**
-- `convex.config.ts` declares `CONVEX_SITE_URL: v.optional(v.string())`
-  (was already a platform-provided env var; declared for clarity).
-- `geocode.ts`'s `userAgent()` reads `env.CONVEX_SITE_URL`. If set, the
-  UA is `Proxy/0.1 (hackathon demo; https://<deployment>.convex.site)`
-  — the contact URL stays current across deploys. If unset, falls back
-  to a non-URL contact string so Nominatim's policy check doesn't
-  break, with a console.warn so it's not silent.
+### 2026-09-16 — development source-actionability gate
+Separated useful research from buyer-actionable leads. Each newly assessed source records whether it
+was a specific listing, whether detailed inspection succeeded, and whether it is a potential lead,
+research, or unavailable source. A lead now requires a specific available listing, successful
+detailed inspection, and an explicit price when the mission has a price floor or ceiling.
 
-**4.2 — opt-in magic link throws if `CONVEX_SITE_URL` missing.**
-- `repliesBridge.sendOptInInvite` no longer has a hardcoded fallback.
-  If `env.CONVEX_SITE_URL` is unset, the mutation throws with a clear
-  "run `npx convex env set CONVEX_SITE_URL ...`" message instead of
-  silently sending workers a broken link.
+The dashboard places non-leads in a collapsed Research Trail and keeps them from notifications,
+seller-outreach drafts, Garage Brief recommendations, and market-range context. A buyer can mark a
+source they cannot open as unavailable; the mutation is owner-scoped, idempotent, logged in activity,
+and preserves that demotion when the source is seen again. Older candidates are safely treated as
+research until a fresh assessment writes the new disposition (`convex/candidates.ts`,
+`convex/hunt.ts`, `convex/verify.ts`, `convex/garageBriefs.ts`, `src/App.tsx`).
 
-**Verification**
-- `tsc --noEmit` clean. `npx convex dev` deploys clean. `npx vite build`
-  succeeds (map still code-splits cleanly).
-- `testConsentFilter`: 3 consented / 1 non-consented. `testBackupPoolTtl`:
-  25h-old entry invisible, fresh one visible. `testLocalEventsTtl`:
-  4d-old entry invisible, fresh one visible. `testLocalEventsDedupe`:
-  first `created: true`, second `created: false` same id.
-  `testRiskFlagCache`: cache hit, summary matches, populated from the
-  indexed query + deduped events.
-- All 4 `testComposeRiskFlag` scenarios still produce sensible output.
-- Geocode works against `San Francisco, CA` (37.79, -122.41) using the
-  env-driven UA. 10s `AbortController` timeout in place.
+Also clarified that the legacy internal vehicle category covers all enthusiast vehicles, not only
+exotic supercars, so the assessor does not reject an appropriate car on that wording alone. Added
+coverage for authorization, legacy-result suppression, user source reporting, and non-repromotion.
+Verified with 13 passing tests, TypeScript checks, a production build, a whitespace check, and a
+development-only Convex function publish with typechecking enabled. No production deployment or
+source-account creation was performed.
 
-### 2026-09-07 - fourth-pass review fixes
+### 2026-09-16 — live development source-quality validation
+Ran a dashboard-only, exact-match vehicle mission for a manual E46 M3 below USD 35,000. Email,
+agent-inbox setup, and seller outreach were disabled; after the completed check, the test mission
+was paused. Firecrawl returned 12 sources and Jamanyo promoted zero: ten generic research,
+search, valuation, editorial, or category pages remained in the Research Trail, while two sources
+with restricted detailed inspection were labelled unavailable. One social-post result appeared to
+meet the car and price criteria, but was correctly withheld because its source could not be fully
+inspected. The live result validates the false-positive gate and exposes the next discovery task:
+prefer individual listing-detail pages over broad web-result pages. No production deployment,
+external account creation, email, or seller contact occurred.
 
-Followed the reviewer's "fix for A" list. **The most important fix was
-#1 — the external-candidate approval path was a complete dead end.**
-Two bugs were hiding behind one symptom:
+### 2026-09-16 — human-first discovery and listing-quality update
+Added three persisted entry points for enthusiast-car missions: a known-car brief for people who
+have the taxonomy, a guided human-language brief for people who know the feeling or use case, and
+a direct public-listing check. Guided briefs retain a short description, selected lifestyle cues,
+and an ownership appetite without requiring a make, model, or year. The verifier receives that
+brief as a fit criterion, but the existing evidence rule remains intact: only a detailed,
+inspectable, currently available specific listing with an explicit price can become a potential
+lead for a budget mission.
 
-**#1 — External-candidate approval now works end-to-end.**
-The previous `approveCandidate` did two things wrong:
-1. It threw `"External candidates need a separate flow"` on any
-   `source === "external"` response, even though external candidates
-   are exactly what the escalation pipeline surfaces.
-2. It only accepted `status === "broadcasting" | "shortlist_ready"`,
-   but the moment escalation fires the shift moves to `escalating`,
-   so a manager trying to approve an external candidate would always
-   see `lost_race` first.
+Discovery now sends Firecrawl a listing-focused query using quoted vehicle identity where known,
+listing-language terms, and negative content terms. It passes a market location and either the
+user's domain allow-list or a default exclusion list for content/community surfaces; explicit
+user domain rules still take precedence. A user-supplied listing is inspected directly instead of
+being sent through a broad web search. Firecrawl results continue through detailed scraping and
+the structured OpenAI/NVIDIA verification step before they appear in the dashboard.
 
-Fix:
-- `approveCandidate` now accepts `status === "escalating"` as a valid
-  pre-approval state. A shift in `confirmed` or `cancelled` is still
-  the only thing that loses the race.
-- The mutation no longer throws on external responses. It patches the
-  shift to `confirmed` (same atomic single-mutation path) and writes a
-  richer `shift_confirmed` event that includes the external sourceUrl
-  and a note that the manager will contact the candidate directly.
-- For internal wins, the existing `sendConfirmAndRejects` scheduler
-  still runs (warm confirm + reject emails). For external wins, no
-  email is scheduled (there's no worker contact), and an extra
-  `external_confirmed` event row is written on the response for the
-  paper trail.
-- Return type is now `{ confirmed: true, confirmedAt: number,
-  external: boolean }` so the front-end can render a different
-  confirmation copy for the two paths.
+The React dashboard now starts missions with “I know the car,” “I know the feeling,” or “I found
+something” cards. Taxonomy appears only on the known-car route; guided discovery uses plain-language
+prompts, lifestyle directions, and ownership appetite. Location, source preferences, delivery,
+alert timing, email, and seller-contact controls are progressive disclosure rather than a required
+intake form. Scout Settings received the same treatment: a base-camp card, visual personality
+choices, and an optional advanced source/contact panel. Mission evidence wording now distinguishes
+sources screened from inspectable listings, and the dashboard-only Garage Brief no longer claims
+that email delivery is enabled.
 
-Verified end-to-end on a fresh shift that escalated and got warm-pool
-external candidates:
-```
-> repliesQueries:approveCandidate {shiftId: k974...zfa, responseId: k575...a22}
-{
-  "confirmed": true,
-  "confirmedAt": 1788779250314,
-  "external": true
-}
-```
-Event log: `"Confirmed by external candidate
-(https://www.careerbuilder.com/job-details/barista-store-59960-...)
-(elapsed 73s from broadcast) — manager will contact the candidate via
-the source URL"`.
+Verified locally with `npm test -- --run` (15 passing tests), TypeScript linting, a Vite production
+build to a temporary directory, and `git diff --check`. The Convex functions and schema were then
+published only to the development deployment with typechecking enabled. No production deployment,
+external hunt run, email, seller contact, account creation, or third-party login occurred.
 
-**#2 — `workers.list` now requires `businessId`.**
-Changed `args: { businessId: v.optional(v.id("businesses")) }` to
-`args: { businessId: v.id("businesses") }` and deleted the no-arg
-fallback branch that returned the first 100 workers globally. Verified:
-a call without `businessId` errors with
-`ArgumentValidationError: Object is missing the required field
-'businessId'`. A call with the right businessId returns only that
-business's workers.
+### 2026-09-16 — live development guided-discovery validation
+Ran one dashboard-only guided car mission with a bounded USD budget, a plain-language brief for an
+analogue manual weekend car, two lifestyle directions, and a learning-oriented ownership appetite.
+No email, agent-inbox activation, seller contact, account creation, or production deployment was
+involved. The mission created successfully and its first manual market check completed without a
+runtime error, but Firecrawl returned zero listing-focused sources; therefore Jamanyo processed and
+cleared zero candidates.
 
-**#3 — `broadcastShift` batch-loads workers in one round-trip.**
-Added `workersBridge.getWorkersBatch` (mirrors the `q.or(...)` pattern
-from `repliesQueries.shortlist`). `broadcastShift`'s `for (const wid
-of args.workerIds)` loop is now a single `runQuery` followed by a JS
-filter for consent + business match. For 50 worker IDs that's 50
-round-trips collapsed into 1.
+This is an important product finding rather than a successful result to overstate. The guided
+query currently concatenates every selected lifestyle phrase, ownership phrase, the full natural-
+language brief, listing-only constraints, and the Deal Radar suffix into a single search request
+(`convex/hunt.ts`). That makes an exploratory brief brittle: the UI accepts a human description,
+but the retrieval layer still behaves like an over-specified database query. The calm empty state
+truthfully avoids inventing a lead, yet it does not tell the user whether Jamanyo found no sources
+or rejected weak sources, nor offer a useful next move. The next discovery iteration should turn a
+guided brief into a small, diverse set of vehicle hypotheses or query lanes, retain provenance per
+lane, and explain the zero-result state in human terms before asking for more constraint. No code
+or deployment change was made from this live validation.
 
-**#4 — `computeScore` has real types.**
-Replaced the `any`-typed `ctx` parameter with a `RankingCtx` interface
-(`db.get(id: Id<"workers">) => Promise<Doc<"workers"> | null>`) and the
-`any` `workerId` field with `Id<"workers"> | undefined`. `tsc` clean.
+### 2026-09-16 — transparent guided-discovery lanes
+Implemented the next discovery iteration from the live validation. A person who knows the feeling
+but not the taxonomy can now save a guided enthusiast-car brief as a one-off market check, with no
+budget or background monitoring required. The initial form asks only for a plain-language picture,
+up to three desired feelings, and ownership appetite; budget, ongoing scouting, and search style
+remain optional in the collapsed fine-tuning area.
 
-**#5 — `shiftId` validated before cast.**
-The webhook handler now runs the regex capture through
-`/^[a-z0-9_-]{1,64}$/` and returns `malformed shift id` (with an
-`unrouted_reply` event log) before the `as Id<"shifts">` cast, so a
-malformed tag can't slip through with a lying type.
+The backend turns that brief into at most three separate, human-readable search hypotheses. It uses
+the existing model path when available and a deterministic, non-prescriptive fallback when it is
+not. Each Firecrawl search is bounded to four results; the three lanes run independently with
+`Promise.allSettled`, duplicate URLs are removed, and each lane records whether it found sources,
+found none, or was temporarily unavailable. That means one search/provider failure does not erase
+the useful work from the other directions. A zero-source pass is shown as a search outcome—not a
+market verdict—and the user can explicitly choose “Broaden the scout” for a wider retry. One-off
+missions are excluded from the recurring sweep, so Jamanyo never implies it is monitoring when it
+is not.
 
-**#6 — `OnboardTab` drops `(r as any)`.**
-`(r as any).inboxEmail` → `r.inboxEmail`. `createBusiness`'s return
-type is already known; the cast was unnecessary.
+The dashboard now exposes the directions, their rationale, and source counts in a Guided Discovery
+Map; it uses an abstract discovery visual until a real listing image exists. Existing guided
+missions that ran before this schema still render honestly as needing a fresh map rather than
+claiming their old generic pass used the new strategy. Mission titles retain the person’s own brief
+instead of collapsing back to the legacy internal category name. On small screens, the header uses
+compact controls, missions become a horizontal rail, and the title/badge row wraps cleanly rather
+than crushing the mission name.
 
-**#7 — opt-in decline form sends empty `roles`.**
-`value="[]"` → `value=""` on the hidden input. The comma-split in
-the POST handler now produces `[]` (filtered out) instead of
-`["[]"]` (a misleading single-element array). Harmless at runtime
-because the decline path returns early, but the data is now correct.
+This pattern was informed by Firecrawl’s public search example, which retries a different strategy
+when initial results are insufficient and only deep-dives when data is missing, and by TinyFish
+cookbook examples that isolate source failures with bounded parallel work. Jamanyo adopts the
+resilient lane pattern without adding a new scraping vendor or asking users to provide credentials
+to listing sites. Firecrawl remains responsible for web discovery and readable source content;
+Jamanyo’s verifier remains responsible for the evidence gate.
 
-**Verification**
-- `tsc --noEmit` clean. `npx convex dev` deploys clean. `npx vite build`
-  succeeds.
-- `testConsentFilter` (3/1), `testBackupPoolTtl`, `testLocalEventsDedupe`
-  (both runs return `created: false` against the existing row —
-  dedupe is working at the row level now), `testRiskFlagCache`,
-  all 4 `testComposeRiskFlag` scenarios.
-- External-candidate approval verified end-to-end on a real
-  escalated shift against a real warm-pool external response.
-- `workers:list` with no args errors; with `businessId` returns the
-  right slice.
+Verified with 19 passing regression tests, TypeScript linting, a Vite production build to a
+temporary directory, whitespace validation, and a development-only Convex publish with typechecking
+enabled. The guided form and phone-sized layout were also inspected in the local preview. No
+production deployment, external hunt run, email, seller contact, third-party login, or account
+creation occurred for this entry.
+
+### 2026-09-16 — mission management and live development update
+Added full owner-scoped mission management to the dashboard. A mission can now be edited in place
+without creating a duplicate: Jamanyo preserves its channel/thread relationship, records a
+`hunt_updated` activity event, marks the previous research trail as potentially based on the old
+brief, and uses the new criteria only on the next check. For a live Firecrawl monitor, the backend
+first stops the old monitor, saves the new brief transactionally, then creates a monitor from the
+new criteria. If native monitoring is unavailable during that refresh, the mission truthfully
+falls back to scheduled search without automatically spending a new search run just because the
+user pressed Save.
+
+The dashboard now has a compact **Edit mission** route and a deliberate **Remove mission**
+confirmation. Removal immediately hides the mission from its owner-facing list, stops a remote
+monitor before local deletion, and removes local candidates, feedback, outreach drafts, queued
+notifications, activity, runs, monitor checks, and linked local thread records in small scheduled
+batches. The worker waits for an in-flight hunt to complete and retires queued runs before it
+clears data, so removal cannot leave a late result behind. Already delivered external email is
+explicitly called out as non-recallable. Delayed monitor callbacks and email-thread commands no-op
+safely while removal is in progress
+(`convex/hunts.ts`, `convex/schema.ts`, `convex/hunt.ts`, `convex/firecrawl.ts`,
+`convex/inboundActions.ts`, `src/App.tsx`, `src/index.css`).
+
+Added authorization and lifecycle coverage: another account cannot update or delete a mission; an
+edit clears a stale guided-discovery map without silently queuing a hunt; deletion removes the
+owner's local trail without affecting another owner's mission; and an in-flight hunt keeps the
+mission in its temporary deleting state until it finishes. Verified with 22 passing regression
+tests, TypeScript linting, a Vite production build, whitespace validation, and a development-only
+Convex publish with typechecking enabled.
+
+Ran one intentional live development update on the existing paused manual E46 M3 mission: changed
+its presentation from Deal Radar to Collector's Desk. The mission remained paused and did not start
+a Firecrawl check; the sidebar badge, dossier language, Garage Brief language, saved-brief warning,
+and activity feed all updated reactively. The deletion confirmation was opened and then cancelled;
+no live mission was removed. No production deployment, email, seller contact, third-party login,
+or account creation occurred.
+
+### 2026-09-16 — working tree — dossier reliability and common-car validation
+Fixed a dashboard layout defect that was compressing the Mission Dossier into a 42-pixel strip in
+the vertical flex layout. Detail cards now retain their natural height and the dashboard scrolls,
+so the vehicle brief, source image or fallback visual, market context, evidence coverage, and current
+call are all visible together (`src/index.css`). The Dossier now subscribes to the mission's recent
+run state and distinguishes an active check, a failed check, a paused mission, a completed check
+with no usable evidence, and sources screened with no qualifying lead (`src/App.tsx`). It no longer
+labels an already-started or completed check as “First check ready.”
+
+Ran one dashboard-only development mission for a common manual roadster with a USD ceiling. The
+precise first Firecrawl query returned zero sources. Jamanyo then used one bounded fallback search
+with simpler vehicle terms, the same market/domain scope, and a maximum of eight results; that
+fallback returned eight listing-focused sources. The first source was a known user-inaccessible
+marketplace, so the test mission was paused before it could be misrepresented as a completed
+lead-quality result. This validates the empty-query recovery path while leaving the final source
+quality assessment explicitly unfinished.
+
+The scraper now disables Firecrawl's multi-minute automatic resume for a slow source, allowing a
+mission to continue from limited search evidence rather than hanging on one marketplace. The known
+inaccessible marketplace is excluded from default discovery, but a user's explicit preferred-domain
+choice still overrides that default (`convex/firecrawl.ts`, `convex/market.ts`). Added regression
+coverage for the fallback query and default exclusion. Verified with 24 passing tests, TypeScript
+linting, a Vite production build, whitespace validation, a browser inspection of the repaired
+Dossier, and development-only Convex publishes with typechecking enabled. No production deployment,
+email, seller contact, third-party login, account creation, or external account action occurred.
+
+### 2026-09-17 — working tree — source-navigation validation
+Compared the same two common-car briefs against Classic.com's public market surfaces and ran two
+temporary dashboard-only Jamanyo checks restricted to `classic.com`. Classic resolves the Miata
+brief to the canonical ND-generation market (`2016–2023`) and exposes individual active cards with
+year, price, mileage, transmission, drive side, location, status, seller/source, verification
+signal, image count, and update/auction timing. The public page visibly contained manual
+2016–2022 listings under the brief's USD 25,000 ceiling. Its canonical E46 manual-coupe market
+also exposed active listing cards and a separate market benchmark, making the distinction between
+a market context page and an individual sale clear.
+
+Both Jamanyo checks showed the present discovery gap honestly. The exact Firecrawl search returned
+zero sources, then the bounded eight-result fallback located Classic taxonomy pages. For the
+Miata, it initially visited NA, NB, and NC market hubs rather than the ND generation; for the E46,
+it correctly descended from the E46 M3 market to the canonical manual-coupe market. The verifier
+rejected every market page as `research`: no specific vehicle, explicit asking price, or confirmed
+availability was present. The E46 market benchmark was explicitly treated as context rather than a
+listing price. Both temporary tests were paused after the evaluation.
+
+The resulting source-navigation recommendation is evidence-first: resolve a vehicle brief to a
+source-specific canonical market route, enumerate its public individual listing cards, apply
+year/transmission/price/status constraints there, and then verify each direct listing URL. Market
+pages should enrich the dossier and never become leads. No Classic account, follow/save action,
+seller contact, email, production deployment, or source adapter implementation occurred in this
+validation.
+
+A second public-source pass across Bring a Trailer and Hemmings confirmed the same navigation
+shape with different price semantics. Bring a Trailer resolves each car to a dedicated vehicle hub
+and separates live auctions from completed results and editorial content; its direct listing pages
+provide auction state, current bid, end time, and detailed condition/provenance evidence. Hemmings
+uses make/model classified hubs that mix classified, make-offer, and auction cards with direct
+listing pages that expose an asking price and structured vehicle facts. A sampled E46 listing had a
+top-level transmission value that conflicted with its descriptive summary, validating the need for
+Jamanyo to surface explicit source-evidence conflicts rather than trust one field. No account,
+watchlist, contact, email, production deployment, or source-adapter implementation occurred.
+
+### 2026-09-17 — source-access and regional-discovery decision
+Defined Jamanyo's source portfolio as a ranked, permission-aware registry rather than an attempt
+to crawl every marketplace. A mission will select a small set of sources by vehicle type, buyer
+intent, location, listing format, evidence quality, and available access route; direct listing
+pages remain the only buyer-actionable evidence, while aggregators and market pages remain
+discovery or context.
+
+Facebook Marketplace is intentionally not an automated Jamanyo source at this stage. User
+passwords, session cookies, background browser automation, and autonomous seller messages are
+out of scope; unsupported Marketplace listings can instead be submitted by a buyer for a
+human-triggered evidence check. Regional structured marketplaces and enthusiast auction sites
+are candidates for future source adapters only after their permitted access path and listing
+quality are validated. No Facebook connection, account access, source adapter, deployment, or
+ external account action was implemented in this decision.
+
+### 2026-09-17 — development — source-aware vehicle discovery and evidence safety
+Implemented a small, explicit vehicle-source registry for Classic.com, Bring a Trailer, and
+Hemmings (`convex/sourceRegistry.ts`). Known-car searches now run source-specific, bounded
+queries in parallel, distinguish individual vehicle pages from market hubs, and only pass route
+shapes understood as direct listings to evidence review. Recognised hubs are mapped once for
+direct pages; non-listing/editorial routes are not promoted into the research trail. If the
+portfolio finds no direct page, Jamanyo makes one bounded broader listing search rather than
+pretending to have comprehensive coverage. Each pass persists a source plan with page counts,
+availability states, source format, and price meaning, which the dashboard renders as a compact
+"Source portfolio" rather than hiding the search scope (`convex/hunt.ts`, `convex/hunts.ts`,
+`convex/schema.ts`, `convex/market.ts`, `src/App.tsx`, `src/index.css`).
+
+Firecrawl requests now use a shared 30-second client timeout with no hidden transport retries
+(`convex/firecrawl.ts`). A slow source therefore records as unavailable for this pass instead of
+holding the whole mission open; a later scheduled check can retry it independently.
+
+Price treatment is now source-aware. Classified listings use asking-price semantics; a live
+auction may use a current bid; a market benchmark or completed result cannot support a ceiling or
+floor decision. The verifier receives that route context and the dashboard labels the number as
+"Asking price", "Current bid", "Buy now", or market context instead of calling every number an
+asking price. Raw internal flags in the evidence trail are translated into plain language.
+
+Ran a temporary, dashboard-only development E46 M3 manual mission against the default portfolio.
+Classic and Hemmings returned market routes but no direct vehicle pages; Bring a Trailer supplied
+one direct auction page. An initial live pass exposed a useful safety failure: a page title that
+said the auction was closed could be misread as a live current bid by the model. Jamanyo did not
+send email or contact a seller, but the result made the gap clear. Added a deterministic
+source-declared closed/sold guard (`convex/listingEvidence.ts`) that overrides model availability,
+marks the price as historical context, removes it from potential leads, and puts the source's
+closed-state explanation first in the evidence trail. The final confirmation pass screened one
+direct page and cleared zero leads; the closed auction was recorded only as research. The temporary
+mission was then paused so it cannot create further checks.
+
+Verified with 26 passing regression tests, TypeScript linting, a Vite production build, and
+development-only Convex publishes with typechecking enabled. No production deployment, email,
+seller contact, third-party login, or external account creation occurred for this entry.
+
+### 2026-09-17 — development — truthful auction monitoring and dashboard validation
+Added a dedicated **Auction Watch** path for one public, specific listing. It stores observable
+facts separately from ordinary discovery—visible bid or asking price, currency, reserve signal,
+availability, stated end time, source evidence, and alert milestones—rather than treating an
+auction as a normal market search. The first snapshot is deliberately silent; later notifications
+require a material public change or a meaningful deadline milestone. Jamanyo does not generate a
+valuation, inspection outcome, or bidding instruction from this path (`convex/auctionWatches.ts`,
+`convex/schema.ts`, `convex/firecrawl.ts`, `convex/hunts.ts`, `convex/crons.ts`).
+
+Firecrawl monitor callbacks now use a dedicated deployment-configured callback URL and an
+HMAC-SHA-256 signature check over the raw request body. The HTTP route claims an idempotency record
+and returns quickly before scheduling the heavier provider/LLM/email work. Pause, resume, and
+archive actions now synchronise the upstream Firecrawl monitor rather than changing only the
+dashboard status. A monitor that cannot start is recorded as **needs attention**, not claimed as
+active; Auction Watch keeps the mission saved, exposes a retry, and never silently falls back to a
+generic search (`convex/http.ts`, `convex/firecrawl.ts`, `convex/hunts.ts`).
+
+The dashboard now has a compact Watch Health strip and three clear views—Now, Leads, and Research.
+An auction mission uses a single-listing dossier and direct source scope instead of a generic market
+portfolio or weekly Garage Brief. Its creation form removes discovery-only location, source,
+serendipity, and seller-contact controls after “Watch one live auction” is selected. Paused,
+archived, rate-limited, and provider-failure states use plain language and never expose a raw
+Convex stack trace. Garage Briefs are also disabled in the form, owner/email mutations, and weekly
+delivery worker for Auction Watch missions (`src/App.tsx`, `src/index.css`, `convex/hunts.ts`,
+`convex/garageBriefs.ts`).
+
+Ran a dashboard-only development test with a public BMW M3 auction listing. The first attempt
+correctly exposed missing callback configuration; that was repaired with development-only Convex
+environment settings. A second attempt revealed that Firecrawl SDK v4 interprets `maxRetries: 0`
+as zero attempts, so the client now uses one bounded attempt. The repaired test created a real
+Firecrawl monitor, then successfully completed provider-synchronised active → paused → active →
+paused lifecycle transitions; it was left paused after the test to avoid background provider use.
+No email, seller contact, account creation, production deployment, or third-party login was
+involved. The provider had not produced its first scheduled check by the end
+of the session, so a real signed Firecrawl callback and downstream notification remain explicitly
+unverified.
+
+Verified after the changes with `npx tsc --noEmit`, `npm test -- --run` (29 passing tests),
+`npm run build`, `git diff --check`, a development-only Convex publish, and browser inspection of
+the auction form, active/paused/resumed monitor state, and Now/Leads/Research views. No production
+deployment has been performed.
+
+### 2026-09-17 — development — launch-preflight reliability pass
+Completed a production-readiness pass across Jamanyo's public Convex surface, owner scoping,
+webhook signature boundaries, bounded database reads, scheduled work, and deployment configuration.
+The password auth provider and its subject-keyed identity tables are present; each browser-facing
+mission, inbox, candidate, activity, watch, preference, outreach, and email setup path derives the
+caller from Convex Auth and verifies mission ownership before it reads or changes a record. All
+scheduled work targets private `internal.*` functions.
+
+Made one reliability repair: queued-email recovery now passes an explicit clock into its internal
+query instead of evaluating the wall clock inside a query. That keeps due-retry selection
+deterministic and avoids a cached query missing a newly-due update (`convex/notifications.ts`,
+`convex/hunt.ts`). Added regression coverage for that boundary.
+
+Verified with 30 passing regression tests, a TypeScript production build, a clean production
+dependency audit, and a development-only Convex function publish. No production deployment,
+email, seller contact, third-party login, or external account creation occurred for this entry.
+
+### 2026-09-17 — development — useful first email update
+Replaced the generic dashboard-email connection note with a mission-specific, status-aware update.
+For example, a paused BMW M3 Auction Watch now identifies itself by vehicle and explains that no
+further checks or alerts will run until it is resumed. Active watches describe the narrow kinds of
+changes that can trigger an update, including auction timing milestones. This makes the first email
+both a safe connection check and an honest operational state update (`convex/hunt.ts`).
+
+Added regression coverage for the tailored subject and paused-watch wording. Verified with 31
+passing regression tests, a TypeScript production build, and a development-only Convex function
+publish. The external development-email delivery is staged but not yet sent; it awaits an explicit
+action-time confirmation. No production deployment, seller contact, third-party login, or account
+creation occurred for this entry.
+
+### 2026-09-17 — development — resilient single-account email demo
+Hardened the controlled email demo against a development auth-account reset. If and only if the
+current account verifies the exact configured demo address, Jamanyo can reclaim that one existing
+demo-inbox mapping and retain its webhook secret. It cannot reclaim a private inbox, a mapping for
+another address, or a second mapping; this preserves the one-physical-inbox/one-account boundary
+and prevents ambiguous inbound ownership (`convex/inbox.ts`, `convex/mail.ts`).
+
+Added positive and negative regression coverage for same-email recovery. Verified with 33 passing
+regression tests, a TypeScript production build, and a development-only Convex function publish.
+The external development-email delivery remains staged but unsent; no production deployment,
+seller contact, third-party login, or account creation occurred for this entry.
+
+### 2026-09-17 — live development email-thread validation
+Reconnected the single configured development demo inbox to its same verified test account, then
+enabled email updates for the paused BMW M3 Auction Watch. The first connection attempt uncovered a
+truthfulness bug: the scheduler would not initialize an email thread for a paused mission, leaving
+the dashboard in a pending state even though no message could be sent. Jamanyo now permits that one
+initial status note for paused missions, while all future hunt and monitor updates remain suppressed
+until the mission resumes (`convex/hunt.ts`).
+
+After the development-only repair, AgentMail accepted the single mission-specific update and
+Jamanyo recorded its outbound thread; the dashboard reached its active email-and-dashboard history
+state. The watch remained paused throughout, so the test did not consume a new Firecrawl check or
+send a seller message. Verified with 33 passing regression tests, a TypeScript production build,
+and development-only Convex publishes. No production deployment, third-party login, or account
+creation occurred for this entry.
+
+### 2026-09-17 — development — email-first guided discovery repair
+A real development email describing a desired kind of car without naming a model reached the signed
+AgentMail webhook and exposed an email-only gap: its classifier produced a conventional vehicle
+mission without enough taxonomy, so validation failed before Jamanyo could reply. The inbound
+delivery was received; no mission or response was created by that failed attempt.
+
+The inbound intent path now recognises known-car, guided-discovery, and listing-review requests.
+A model-less enthusiast-car brief becomes a sanitised, one-off guided market map that retains its
+budget and constraints but never starts recurring monitoring without an explicit follow-up. If a
+recoverable request-validation mismatch still occurs, Jamanyo replies with a useful clarification
+instead of returning a webhook 500 and leaving the sender in silence (`convex/inboundActions.ts`).
+
+Added a regression test that normalises a plain-English email brief and persists the resulting
+guided mission. Verified with 34 passing regression tests, TypeScript checks, a Vite production
+build, whitespace validation, and a development-only Convex publish. No production deployment,
+additional provider email, seller contact, third-party login, or account creation occurred.
+
+### 2026-09-17 — live development guided-email round trip
+Retested the repaired email path with a plain-English, model-less car brief. The signed AgentMail
+webhook created the mission successfully, queued its first market pass, and accepted Jamanyo’s
+threaded acknowledgement; the outbound message was also recorded in the shared mission history.
+The webhook completed with HTTP 200. A repeat provider delivery was deduplicated safely, so the
+same email could not create a second mission or reply.
+
+This validates the email-first guided-discovery handoff through the development deployment:
+inbound email → interpreted guided brief → durable hunt run → threaded AgentMail reply. The
+acknowledgement is provider-accepted; the asynchronous market pass continues separately. No
+production deployment, seller contact, third-party login, or private-inbox provisioning change
+occurred in this validation.
+
+### 2026-09-17 — public development static-hosting deployment
+Installed and registered Convex Static Hosting while preserving existing root-level Convex Auth and
+signed AgentMail and Firecrawl webhook routes. The static catch-all is registered after those exact
+routes, so the public single-page app can own navigation without changing the stable integration
+URLs (`convex/convex.config.ts`, `convex/http.ts`, `package.json`).
+
+Published the validated React build to the public Convex development site. The hosted sign-in page
+rendered successfully, and the release passed TypeScript checks, 34 regression tests, and a Vite
+production build. The controlled demo inbox remains available only to its configured verified
+account; private inbox provisioning remains disabled, with all other accounts offered a dashboard
+and waitlist path. No Convex production deployment, seller contact, third-party login, or private
+inbox creation occurred.

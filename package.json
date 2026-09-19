@@ -1,5 +1,5 @@
 {
-  "name": "proxy",
+  "name": "jamanyo",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -7,26 +7,30 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "convex": "convex"
+    "convex": "convex",
+    "lint": "tsc --noEmit",
+    "test": "vitest run",
+    "deploy": "npx @convex-dev/static-hosting deploy"
   },
   "dependencies": {
+    "@convex-dev/auth": "^0.0.95",
+    "@convex-dev/rate-limiter": "^0.3.2",
+    "@convex-dev/static-hosting": "^0.2.1",
     "@x402/fetch": "^2.25.0",
     "agentmail": "^0.5.21",
     "convex": "^1.45.0",
     "firecrawl": "^4.38.0",
-    "leaflet": "^1.9.4",
     "openai": "^7.8.0",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0",
-    "react-leaflet": "^5.0.0"
+    "react-dom": "^19.2.0"
   },
   "devDependencies": {
-    "@types/leaflet": "^1.9.12",
-    "@types/node": "^26.4.1",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^6.0.0",
+    "convex-test": "^0.0.58",
     "typescript": "^7.0.0",
-    "vite": "^8.0.0"
+    "vite": "^8.0.0",
+    "vitest": "^5.0.1"
   }
 }
